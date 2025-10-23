@@ -33,6 +33,7 @@ export interface Task {
   startDate: string;
   endDate: string;
   status: 'No Iniciado' | 'En Progreso' | 'Completado' | 'Retrasado';
+  completionDate?: string;
 }
 
 export interface TimeLog {

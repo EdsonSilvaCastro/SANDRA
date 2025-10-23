@@ -165,7 +165,10 @@ const Reports: React.FC = () => {
                             <tr key={task.id} className="border-b">
                                 <td className="p-2">{task.name}</td>
                                 <td className="p-2">{workers.find(w => w.id === task.assignedWorkerId)?.name || 'N/A'}</td>
-                                <td className="p-2">{new Date(task.startDate).toLocaleDateString()} - {new Date(task.endDate).toLocaleDateString()}</td>
+                                <td className="p-2">
+                                    {new Date(task.startDate).toLocaleDateString()} - {new Date(task.endDate).toLocaleDateString()}
+                                    {task.completionDate && <div className="text-xs text-green-700 font-medium">Completado: {new Date(task.completionDate).toLocaleDateString()}</div>}
+                                </td>
                                 <td className="p-2">
                                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getTaskStatusClass(task.status)}`}>
                                         {task.status}

@@ -26,10 +26,22 @@ const Schedule: React.FC = () => {
     };
 
     const handleSave = () => {
+        const taskToSave: Partial<Task> = { ...currentTask };
+
+        // Si la tarea se marca como completada y no tiene fecha de finalización
+        if (taskToSave.status === 'Completado' && !taskToSave.completionDate) {
+            taskToSave.completionDate = new Date().toISOString().split('T')[0];
+        }
+
+        // Si el estado cambia de "Completado" a otro, se borra la fecha de finalización
+        if (taskToSave.status !== 'Completado' && taskToSave.completionDate) {
+            taskToSave.completionDate = undefined;
+        }
+
         if (isEditing) {
-            setTasks(tasks.map(t => t.id === currentTask.id ? currentTask as Task : t));
+            setTasks(tasks.map(t => t.id === taskToSave.id ? taskToSave as Task : t));
         } else {
-            setTasks([...tasks, { ...currentTask, id: `tsk-${Date.now()}` } as Task]);
+            setTasks([...tasks, { ...taskToSave, id: `tsk-${Date.now()}` } as Task]);
         }
         setIsModalOpen(false);
     };
@@ -73,6 +85,11 @@ const Schedule: React.FC = () => {
                                     <p className="text-xs text-black mt-1">
                                         Asignado a: {workers.find(w => w.id === task.assignedWorkerId)?.name || 'Sin asignar'}
                                     </p>
+                                    {task.status === 'Completado' && task.completionDate && (
+                                        <p className="text-xs text-green-600 font-semibold mt-1">
+                                            Completado el: {new Date(task.completionDate).toLocaleDateString()}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="text-right flex-shrink-0 ml-4">
                                      <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task.status)}`}>
