@@ -5,6 +5,8 @@ import { initialMaterials, initialMaterialOrders, initialWorkers, initialTasks, 
 import { Material, MaterialOrder, Worker, Task, TimeLog, BudgetCategory, Expense } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
 
 const Reports: React.FC = () => {
     const [reportType, setReportType] = useState<string | null>(null);
@@ -138,14 +140,69 @@ const Reports: React.FC = () => {
             return acc;
         }, {} as Record<Task['status'], number>);
         
-        const getTaskStatusClass = (status: Task['status']) => {
-            switch (status) {
-                case 'Completado': return 'bg-green-500 text-white';
-                case 'En Progreso': return 'bg-blue-500 text-white';
-                case 'Retrasado': return 'bg-red-500 text-white';
-                case 'No Iniciado': return 'bg-gray-500 text-white';
-                default: return 'bg-gray-500 text-white';
+        const getTaskProgress = (task: Task) => {
+            if (task.status === 'Completado') return 100;
+            if (task.status === 'No Iniciado') return 0;
+            const totalDuration = new Date(task.endDate).getTime() - new Date(task.startDate).getTime();
+            if (totalDuration <= 0) return 0;
+            const elapsedDuration = new Date().getTime() - new Date(task.startDate).getTime();
+            if (elapsedDuration <= 0) return 0;
+            return Math.min(100, (elapsedDuration / totalDuration) * 100);
+        };
+    
+        const sortedTasks = [...tasks].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+        
+        if (tasks.length === 0) {
+            return (
+                <div>
+                    {generateReportHeader("Reporte de Progreso del Proyecto")}
+                    <p>No hay tareas para mostrar.</p>
+                </div>
+            );
+        }
+
+        const projectStartDate = Math.min(...sortedTasks.map(t => new Date(t.startDate).getTime()));
+    
+        const chartData = sortedTasks.map(task => {
+            const start = new Date(task.startDate).getTime();
+            const end = new Date(task.endDate).getTime();
+            const duration = end - start > 0 ? end - start : 0;
+    
+            const progress = getTaskProgress(task);
+            const completed = duration * (progress / 100);
+            const remaining = duration - completed;
+    
+            return {
+                name: task.name,
+                offset: start - projectStartDate,
+                completed: completed,
+                remaining: remaining,
+                startDate: new Date(start).toLocaleDateString(),
+                endDate: new Date(end).toLocaleDateString(),
+                status: task.status
+            };
+        });
+    
+        const domainEnd = Math.max(...sortedTasks.map(t => new Date(t.endDate).getTime())) - projectStartDate;
+    
+        const tickFormatter = (tick: number) => {
+          const date = new Date(projectStartDate + tick);
+          return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
+        };
+    
+        const CustomTooltip = ({ active, payload, label }: any) => {
+            if (active && payload && payload.length) {
+                const data = payload[0].payload;
+                return (
+                    <div className="bg-white p-2 border shadow-lg rounded text-sm text-black">
+                        <p className="font-bold">{label}</p>
+                        <p>Inicio: {data.startDate}</p>
+                        <p>Fin: {data.endDate}</p>
+                        <p>Estado: {data.status}</p>
+                    </div>
+                );
             }
+            return null;
         };
 
         return (
@@ -157,27 +214,26 @@ const Reports: React.FC = () => {
                     <div className="p-2 bg-green-100 rounded-lg"><p className="text-sm">Completadas</p><p className="text-xl font-bold">{tasksByStatus['Completado'] || 0}</p></div>
                     <div className="p-2 bg-red-100 rounded-lg"><p className="text-sm">Retrasadas</p><p className="text-xl font-bold">{tasksByStatus['Retrasado'] || 0}</p></div>
                  </div>
-                 <h4 className="text-lg font-semibold mb-2">Detalle de Tareas</h4>
-                 <table className="w-full text-left text-sm">
-                    <thead><tr className="border-b bg-gray-50"><th className="p-2">Tarea</th><th className="p-2">Asignado a</th><th className="p-2">Fechas</th><th className="p-2">Estado</th></tr></thead>
-                    <tbody>
-                        {tasks.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => (
-                            <tr key={task.id} className="border-b">
-                                <td className="p-2">{task.name}</td>
-                                <td className="p-2">{workers.find(w => w.id === task.assignedWorkerId)?.name || 'N/A'}</td>
-                                <td className="p-2">
-                                    {new Date(task.startDate).toLocaleDateString()} - {new Date(task.endDate).toLocaleDateString()}
-                                    {task.completionDate && <div className="text-xs text-green-700 font-medium">Completado: {new Date(task.completionDate).toLocaleDateString()}</div>}
-                                </td>
-                                <td className="p-2">
-                                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getTaskStatusClass(task.status)}`}>
-                                        {task.status}
-                                    </span>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                 </table>
+                 <h4 className="text-lg font-semibold my-4">Cronograma de Tareas</h4>
+                 <div style={{ width: '100%', height: 35 * sortedTasks.length + 60, minHeight: 250 }}>
+                     <ResponsiveContainer>
+                         <BarChart
+                             layout="vertical"
+                             data={chartData}
+                             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                             barCategoryGap="35%"
+                         >
+                             <CartesianGrid strokeDasharray="3 3" />
+                             <XAxis type="number" domain={[0, 'auto']} tickFormatter={tickFormatter} />
+                             <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12, fill: '#000' }} />
+                             <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(240, 240, 240, 0.5)'}} />
+                             <Legend wrapperStyle={{fontSize: "12px", paddingTop: "10px"}}/>
+                             <Bar dataKey="offset" stackId="a" fill="transparent" name="Periodo de Espera" />
+                             <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Progreso" />
+                             <Bar dataKey="remaining" stackId="a" fill="#d1d5db" name="Restante" />
+                         </BarChart>
+                     </ResponsiveContainer>
+                 </div>
             </div>
         )
     };
