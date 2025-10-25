@@ -14,8 +14,8 @@ export const initialWorkers: Worker[] = [
 ];
 
 export const initialTasks: Task[] = [
-    { id: 'tsk-1', name: 'Vaciado de Cimientos', description: 'Vaciar concreto para los cimientos principales', assignedWorkerId: 'wor-1', startDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], endDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'En Progreso' },
-    { id: 'tsk-2', name: 'Cableado Eléctrico', description: 'Instalar líneas eléctricas principales', assignedWorkerId: 'wor-2', startDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], endDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'No Iniciado' },
+    { id: 'tsk-1', name: 'Vaciado de Cimientos', description: 'Vaciar concreto para los cimientos principales', assignedWorkerId: 'wor-1', startDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], endDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'En Progreso', totalVolume: 100, completedVolume: 40, volumeUnit: 'm³' },
+    { id: 'tsk-2', name: 'Cableado Eléctrico', description: 'Instalar líneas eléctricas principales', assignedWorkerId: 'wor-2', startDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], endDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'No Iniciado', totalVolume: 500, completedVolume: 0, volumeUnit: 'm' },
 ];
 
 export const initialTimeLogs: TimeLog[] = [

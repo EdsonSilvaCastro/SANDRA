@@ -17,8 +17,13 @@ const Dashboard: React.FC = () => {
   const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
   const budgetProgress = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   
+  const totalProjectVolume = tasks.reduce((acc, task) => acc + (task.totalVolume || 0), 0);
+  const completedProjectVolume = tasks.reduce((acc, task) => acc + (task.completedVolume || 0), 0);
   const completedTasks = tasks.filter(t => t.status === 'Completado').length;
-  const projectProgress = tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
+  
+  const projectProgress = totalProjectVolume > 0 
+      ? (completedProjectVolume / totalProjectVolume) * 100 
+      : tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
   
   const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
 

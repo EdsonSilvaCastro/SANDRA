@@ -34,6 +34,9 @@ export interface Task {
   endDate: string;
   status: 'No Iniciado' | 'En Progreso' | 'Completado' | 'Retrasado';
   completionDate?: string;
+  totalVolume?: number;
+  completedVolume?: number;
+  volumeUnit?: string;
 }
 
 export interface TimeLog {

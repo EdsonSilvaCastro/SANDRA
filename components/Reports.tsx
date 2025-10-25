@@ -141,6 +141,9 @@ const Reports: React.FC = () => {
         }, {} as Record<Task['status'], number>);
         
         const getTaskProgress = (task: Task) => {
+            if (task.totalVolume && task.totalVolume > 0) {
+                return Math.min(100, ((task.completedVolume || 0) / task.totalVolume) * 100);
+            }
             if (task.status === 'Completado') return 100;
             if (task.status === 'No Iniciado') return 0;
             const totalDuration = new Date(task.endDate).getTime() - new Date(task.startDate).getTime();

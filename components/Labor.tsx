@@ -40,6 +40,13 @@ const Labor: React.FC = () => {
         }
     };
 
+    const totalLaborCost = workers.reduce((total, worker) => {
+        const totalHours = timeLogs.filter(log => log.workerId === worker.id).reduce((acc, log) => acc + log.hours, 0);
+        const cost = totalHours * worker.hourlyRate;
+        return total + cost;
+    }, 0);
+
+
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
@@ -81,6 +88,12 @@ const Labor: React.FC = () => {
                             );
                         })}
                     </tbody>
+                    <tfoot>
+                        <tr className="border-t-2 border-gray-300 bg-gray-100">
+                            <td colSpan={4} className="p-3 text-right font-bold text-black">Costo Total de Mano de Obra:</td>
+                            <td className="p-3 font-bold text-lg text-black">${totalLaborCost.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </Card>
 

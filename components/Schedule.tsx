@@ -31,8 +31,22 @@ const Schedule: React.FC = () => {
     const handleSave = () => {
         const taskToSave: Partial<Task> = { ...currentTask };
 
-        if (taskToSave.status === 'Completado' && !taskToSave.completionDate) {
-            taskToSave.completionDate = new Date().toISOString().split('T')[0];
+        if (taskToSave.status === 'Completado') {
+            if (!taskToSave.completionDate) {
+                taskToSave.completionDate = new Date().toISOString().split('T')[0];
+            }
+            if (taskToSave.totalVolume) {
+                taskToSave.completedVolume = taskToSave.totalVolume;
+            }
+        }
+
+        if (taskToSave.totalVolume && taskToSave.completedVolume && taskToSave.completedVolume >= taskToSave.totalVolume && taskToSave.status !== 'Completado') {
+            if(window.confirm('El volumen de avance ha alcanzado el 100%. ¿Desea marcar esta tarea como "Completado"?')){
+                taskToSave.status = 'Completado';
+                if (!taskToSave.completionDate) {
+                    taskToSave.completionDate = new Date().toISOString().split('T')[0];
+                }
+            }
         }
 
         if (taskToSave.status !== 'Completado' && taskToSave.completionDate) {
@@ -45,6 +59,12 @@ const Schedule: React.FC = () => {
             setTasks([...tasks, { ...taskToSave, id: `tsk-${Date.now()}` } as Task]);
         }
         setIsModalOpen(false);
+    };
+
+    const handleDelete = (taskId: string) => {
+        if (window.confirm('¿Estás seguro de que quieres eliminar esta tarea? Esta acción no se puede deshacer.')) {
+            setTasks(tasks.filter(t => t.id !== taskId));
+        }
     };
 
     const handleJsonImportClick = () => {
@@ -208,6 +228,9 @@ const Schedule: React.FC = () => {
     };
     
     const getTaskProgress = (task: Task) => {
+        if (task.totalVolume && task.totalVolume > 0) {
+            return Math.min(100, ((task.completedVolume || 0) / task.totalVolume) * 100);
+        }
         if (task.status === 'Completado') return 100;
         if (task.status === 'No Iniciado') return 0;
         const totalDuration = new Date(task.endDate).getTime() - new Date(task.startDate).getTime();
@@ -254,6 +277,12 @@ const Schedule: React.FC = () => {
                                     <p className="text-xs text-black mt-1">
                                         Asignado a: {workers.find(w => w.id === task.assignedWorkerId)?.name || 'Sin asignar'}
                                     </p>
+                                     {task.totalVolume && (
+                                        <p className="text-sm text-black mt-1 font-medium">
+                                            Avance: {task.completedVolume || 0} / {task.totalVolume} {task.volumeUnit || ''}
+                                            <span className="text-gray-500 font-normal"> ({getTaskProgress(task).toFixed(0)}%)</span>
+                                        </p>
+                                    )}
                                     {task.status === 'Completado' && task.completionDate && (
                                         <p className="text-xs text-green-600 font-semibold mt-1">
                                             Completado el: {new Date(task.completionDate).toLocaleDateString()}
@@ -266,6 +295,7 @@ const Schedule: React.FC = () => {
                                     </span>
                                     <p className="text-sm text-black mt-1">{new Date(task.startDate).toLocaleDateString()} - {new Date(task.endDate).toLocaleDateString()}</p>
                                      <button onClick={() => handleOpenModal(task)} className="text-sm text-black hover:text-gray-600 mt-1">Editar</button>
+                                     <button onClick={() => handleDelete(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
                                 </div>
                            </div>
                            <div className="mt-3">
@@ -294,6 +324,20 @@ const Schedule: React.FC = () => {
                         <option>Completado</option>
                         <option>Retrasado</option>
                     </select>
+                     <div className="grid grid-cols-3 gap-4">
+                        <div className="col-span-2">
+                            <label className="text-black block text-sm font-medium">Volumen Total</label>
+                            <input type="number" placeholder="Ej. 100" value={currentTask.totalVolume || ''} onChange={e => setCurrentTask({...currentTask, totalVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                        </div>
+                        <div>
+                            <label className="text-black block text-sm font-medium">Unidad</label>
+                            <input type="text" placeholder="Ej. m³" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-black block text-sm font-medium">Volumen de Avance</label>
+                        <input type="number" placeholder="Ej. 25" value={currentTask.completedVolume || ''} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    </div>
                     <button onClick={handleSave} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Tarea</button>
                 </div>
             </Modal>
