@@ -37,6 +37,7 @@ export interface Task {
   totalVolume?: number;
   completedVolume?: number;
   volumeUnit?: string;
+  photoIds?: string[];
 }
 
 export interface TimeLog {

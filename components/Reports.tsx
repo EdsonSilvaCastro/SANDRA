@@ -424,7 +424,7 @@ const Reports: React.FC = () => {
             </div>
 
             <Modal isOpen={!!reportType} onClose={() => setReportType(null)} title={getReportTitle()}>
-                <div className="printable-area max-h-[70vh] overflow-y-auto p-2 print:max-h-none">
+                <div className="printable-area max-h-[70vh] overflow-y-auto p-2 print:max-h-none print:overflow-visible">
                     {getReportContent()}
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-3 no-print">

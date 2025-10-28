@@ -1,8 +1,7 @@
-
 import React, { useState, useRef } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
-import { initialTasks, initialWorkers } from '../constants';
-import { Task, Worker } from '../types';
+import { initialTasks, initialWorkers, initialPhotos } from '../constants';
+import { Task, Worker, Photo } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ProgressBar from './ui/ProgressBar';
@@ -10,11 +9,15 @@ import ProgressBar from './ui/ProgressBar';
 const Schedule: React.FC = () => {
     const [tasks, setTasks] = useLocalStorage<Task[]>('tasks', initialTasks);
     const [workers] = useLocalStorage<Worker[]>('workers', initialWorkers);
+    const [photos] = useLocalStorage<Photo[]>('photos', initialPhotos);
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentTask, setCurrentTask] = useState<Partial<Task>>({});
     const [isEditing, setIsEditing] = useState(false);
     const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
     const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+    const [isPhotoManagerOpen, setIsPhotoManagerOpen] = useState(false);
+    const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
     const jsonFileInputRef = useRef<HTMLInputElement>(null);
 
     const handleOpenModal = (task?: Task) => {
@@ -22,7 +25,7 @@ const Schedule: React.FC = () => {
             setCurrentTask(task);
             setIsEditing(true);
         } else {
-            setCurrentTask({ status: 'No Iniciado', startDate: new Date().toISOString().split('T')[0] });
+            setCurrentTask({ status: 'No Iniciado', startDate: new Date().toISOString().split('T')[0], photoIds: [] });
             setIsEditing(false);
         }
         setIsModalOpen(true);
@@ -104,6 +107,32 @@ const Schedule: React.FC = () => {
         reader.readAsText(file);
         event.target.value = '';
     };
+    
+    // Función mejorada para analizar una línea de CSV que maneja comas dentro de campos entrecomillados
+    const parseCsvLine = (line: string, delimiter: string = ','): string[] => {
+        const values: string[] = [];
+        let currentField = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+                    // Es una comilla escapada ("")
+                    currentField += '"';
+                    i++; // Saltar la siguiente comilla
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === delimiter && !inQuotes) {
+                values.push(currentField);
+                currentField = '';
+            } else {
+                currentField += char;
+            }
+        }
+        values.push(currentField);
+        return values.map(v => v.trim());
+    };
 
     const handleCsvFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -117,7 +146,6 @@ const Schedule: React.FC = () => {
                     throw new Error("El archivo está vacío.");
                 }
     
-                // Remove Byte Order Mark (BOM) if present
                 if (text.charCodeAt(0) === 0xFEFF) {
                     text = text.slice(1);
                 }
@@ -127,7 +155,6 @@ const Schedule: React.FC = () => {
     
                 const headerLine = lines[0];
                 
-                // Auto-detect delimiter
                 const commaCount = (headerLine.match(/,/g) || []).length;
                 const semicolonCount = (headerLine.match(/;/g) || []).length;
                 const delimiter = semicolonCount > commaCount ? ';' : ',';
@@ -139,15 +166,10 @@ const Schedule: React.FC = () => {
                 const missingHeaders = requiredHeaders.filter(rh => !lowerCaseHeaders.includes(rh));
                 
                 if (missingHeaders.length > 0) {
-                    const userFriendlyMissing = missingHeaders.map(h => {
-                        if (h === 'startdate') return 'startDate';
-                        if (h === 'enddate') return 'endDate';
-                        return h;
-                    });
+                    const userFriendlyMissing = missingHeaders.map(h => h === 'startdate' ? 'startDate' : h === 'enddate' ? 'endDate' : h);
                     throw new Error(`El archivo CSV debe contener las siguientes columnas: name, startDate, endDate. Columnas faltantes: ${userFriendlyMissing.join(', ')}`);
                 }
                 
-                // Get column indices
                 const nameIndex = lowerCaseHeaders.indexOf('name');
                 const startDateIndex = lowerCaseHeaders.indexOf('startdate');
                 const endDateIndex = lowerCaseHeaders.indexOf('enddate');
@@ -155,24 +177,28 @@ const Schedule: React.FC = () => {
                 const statusIndex = lowerCaseHeaders.indexOf('status');
                 const assignedWorkerIdIndex = lowerCaseHeaders.indexOf('assignedworkerid');
     
-    
                 const newTasks: Task[] = [];
                 for (let i = 1; i < lines.length; i++) {
                     if (!lines[i]) continue;
     
-                    const data = lines[i].split(delimiter).map(d => d.replace(/"/g, '').trim());
+                    const data = parseCsvLine(lines[i], delimiter);
                     
+                    if (data.length < headers.length) {
+                        console.warn(`Saltando fila ${i + 1} por un número incorrecto de columnas.`);
+                        continue;
+                    }
+
                     const name = data[nameIndex];
                     const startDate = data[startDateIndex];
                     const endDate = data[endDateIndex];
     
                     if (!name || !startDate || !endDate) {
-                        console.warn(`Saltando fila ${i+1} por datos incompletos.`);
+                        console.warn(`Saltando fila ${i+1} por datos obligatorios incompletos.`);
                         continue;
                     }
                     
                     if (isNaN(new Date(startDate).getTime()) || isNaN(new Date(endDate).getTime())) {
-                        console.warn(`Saltando fila ${i+1} por formato de fecha inválido.`);
+                        console.warn(`Saltando fila ${i+1} por formato de fecha inválido. Usar AAAA-MM-DD.`);
                         continue;
                     }
     
@@ -268,7 +294,9 @@ const Schedule: React.FC = () => {
             
             <Card>
                 <div className="space-y-4">
-                    {tasks.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => (
+                    {tasks.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => {
+                        const attachedPhotos = task.photoIds ? photos.filter(p => task.photoIds!.includes(p.id)) : [];
+                        return (
                         <div key={task.id} className="p-4 border rounded-lg hover:shadow-lg transition-shadow">
                            <div className="flex justify-between items-start">
                                 <div>
@@ -298,11 +326,24 @@ const Schedule: React.FC = () => {
                                      <button onClick={() => handleDelete(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
                                 </div>
                            </div>
+                            {attachedPhotos.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {attachedPhotos.map(photo => (
+                                        <img 
+                                            key={photo.id} 
+                                            src={photo.url} 
+                                            alt={photo.description} 
+                                            className="w-16 h-16 object-cover rounded-md cursor-pointer hover:opacity-75 transition-opacity"
+                                            onClick={(e) => { e.stopPropagation(); setViewingPhotoUrl(photo.url); }}
+                                        />
+                                    ))}
+                                </div>
+                            )}
                            <div className="mt-3">
                                 <ProgressBar value={getTaskProgress(task)} color={task.status === 'Retrasado' ? 'red' : task.status === 'Completado' ? 'green' : 'blue'} />
                            </div>
                         </div>
-                    ))}
+                    )})}
                 </div>
             </Card>
 
@@ -338,7 +379,22 @@ const Schedule: React.FC = () => {
                         <label className="text-black block text-sm font-medium">Volumen de Avance</label>
                         <input type="number" placeholder="Ej. 25" value={currentTask.completedVolume || ''} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     </div>
-                    <button onClick={handleSave} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Tarea</button>
+                    <div className="mt-4">
+                        <label className="text-black block text-sm font-medium mb-2">Fotos Adjuntas</label>
+                        <div className="flex flex-wrap gap-2 mb-2 p-2 bg-gray-50 rounded border min-h-[60px]">
+                            {(currentTask.photoIds || []).map(photoId => {
+                                const photo = photos.find(p => p.id === photoId);
+                                return photo ? <img key={photo.id} src={photo.url} className="w-12 h-12 object-cover rounded" alt={photo.description} /> : null;
+                            })}
+                        </div>
+                        <button 
+                            onClick={(e) => { e.preventDefault(); setIsPhotoManagerOpen(true); }}
+                            className="w-full py-2 bg-gray-200 text-black rounded hover:bg-gray-300 text-sm"
+                        >
+                            Añadir / Gestionar Fotos
+                        </button>
+                    </div>
+                    <button onClick={handleSave} className="w-full mt-2 py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Tarea</button>
                 </div>
             </Modal>
 
@@ -356,7 +412,7 @@ const Schedule: React.FC = () => {
                     <p>Puedes crear este archivo en Excel, Google Sheets o un editor de texto y guardarlo como ".csv".</p>
                     <div className="bg-gray-100 p-2 rounded font-mono text-xs">
                         <p>name,description,startDate,endDate,status</p>
-                        <p>"Vaciado de Cimientos","Vaciar concreto",2024-08-01,2024-08-05,"En Progreso"</p>
+                        <p>"Vaciado de Cimientos","Vaciar concreto, asegurar nivel",2024-08-01,2024-08-05,"En Progreso"</p>
                         <p>"Cableado Eléctrico","Instalar líneas principales",2024-08-06,2024-08-10,"No Iniciado"</p>
                     </div>
                      <input 
@@ -415,6 +471,54 @@ const Schedule: React.FC = () => {
                     <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Imprimir / Exportar</button>
                 </div>
             </Modal>
+
+            <Modal isOpen={isPhotoManagerOpen} onClose={() => setIsPhotoManagerOpen(false)} title={`Gestionar Fotos para "${currentTask.name}"`}>
+                <div className="space-y-6">
+                    <div>
+                        <h4 className="font-semibold text-black mb-2 border-b pb-1">Fotos Adjuntas</h4>
+                        <div className="flex flex-wrap gap-2 min-h-[104px] p-2 bg-gray-50 rounded">
+                            {photos.filter(p => currentTask.photoIds?.includes(p.id)).map(photo => (
+                                <div key={photo.id} className="relative group">
+                                    <img src={photo.url} className="w-24 h-24 object-cover rounded" alt={photo.description} />
+                                    <button
+                                        onClick={() => setCurrentTask(prev => ({ ...prev, photoIds: prev.photoIds?.filter(id => id !== photo.id) }))}
+                                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                        aria-label="Desvincular foto"
+                                    >X</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 className="font-semibold text-black mb-2 border-b pb-1">Fotos Disponibles en Bitácora</h4>
+                        <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto p-2 border rounded">
+                            {photos.filter(p => !currentTask.photoIds?.includes(p.id)).length === 0 ? (
+                                <p className="text-sm text-black">No hay más fotos disponibles para adjuntar.</p>
+                            ) : (
+                                photos.filter(p => !currentTask.photoIds?.includes(p.id)).map(photo => (
+                                    <div key={photo.id} className="relative group cursor-pointer" onClick={() => setCurrentTask(prev => ({ ...prev, photoIds: [...(prev.photoIds || []), photo.id] }))}>
+                                        <img src={photo.url} className="w-24 h-24 object-cover rounded" alt={photo.description} />
+                                        <div className="absolute inset-0 bg-black bg-opacity-50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setIsPhotoManagerOpen(false)}
+                        className="w-full mt-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
+                    >
+                        Hecho
+                    </button>
+                </div>
+            </Modal>
+
+            <Modal isOpen={!!viewingPhotoUrl} onClose={() => setViewingPhotoUrl(null)} title="Vista de Foto">
+                <img src={viewingPhotoUrl || ''} alt="Vista ampliada" className="w-full max-h-[80vh] object-contain rounded-lg" />
+            </Modal>
+
         </div>
     );
 };

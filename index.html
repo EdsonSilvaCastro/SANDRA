@@ -35,23 +35,31 @@
     <script type="module" src="/index.tsx"></script>
     <style>
         @media print {
-            body * {
-                visibility: hidden;
+            body {
+                background-color: white !important;
             }
-            .printable-area, .printable-area * {
-                visibility: visible;
-            }
-            .printable-area {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-            }
+
+            /* Hide elements specifically marked not for printing */
             .no-print {
                 display: none !important;
             }
+
+            /* The printable area should be lifted out of the normal flow and cover the page */
+            .printable-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+            }
+
+            /* Helper to avoid page breaks inside an element */
             .break-inside-avoid {
                 break-inside: avoid;
+            }
+
+            /* Remove any shadows from elements during printing for a cleaner look */
+            *, *::before, *::after {
+                box-shadow: none !important;
             }
         }
     </style>
