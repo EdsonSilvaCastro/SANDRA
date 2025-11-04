@@ -1,9 +1,10 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { initialMaterials, initialWorkers, initialTasks, initialTimeLogs, initialBudgetCategories, initialExpenses, initialPhotos, initialMaterialOrders, initialClients, initialInteractions } from '../constants';
 
-interface Project {
+export interface Project {
   id: string;
   name: string;
+  pin?: string;
 }
 
 interface ProjectContextType {
@@ -11,9 +12,12 @@ interface ProjectContextType {
   activeProjectId: string | null;
   activeProject: Project | null;
   switchProject: (id: string) => void;
-  createProject: (name: string) => void;
+  createProject: (name: string, pin?: string) => void;
+  updateProject: (id: string, data: Partial<Omit<Project, 'id'>>) => void;
   deleteProject: (id: string) => void;
   isReady: boolean;
+  unlockedProjects: Record<string, boolean>;
+  unlockProject: (id: string) => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -38,22 +42,25 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [unlockedProjects, setUnlockedProjects] = useState<Record<string, boolean>>({});
+
 
   useEffect(() => {
     try {
       const metaRaw = localStorage.getItem('constructpro_meta');
       let meta = metaRaw ? JSON.parse(metaRaw) : null;
 
-      if (!meta && localStorage.getItem('materials')) {
+      if (!meta && localStorage.getItem('constructpro_project_proj-legacy_materials')) {
         console.log('Migrating old data to new project structure...');
         const defaultProjectId = `proj-${Date.now()}`;
         const defaultProject: Project = { id: defaultProjectId, name: 'Proyecto Principal' };
 
         DATA_KEYS.forEach(key => {
-          const oldData = localStorage.getItem(key);
+          const oldDataKey = `constructpro_project_proj-legacy_${key}`;
+          const oldData = localStorage.getItem(oldDataKey);
           if (oldData) {
             localStorage.setItem(`constructpro_project_${defaultProjectId}_${key}`, oldData);
-            localStorage.removeItem(key);
+            localStorage.removeItem(oldDataKey);
           }
         });
 
@@ -110,9 +117,9 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const createProject = (name: string) => {
+  const createProject = (name: string, pin?: string) => {
     const newId = `proj-${Date.now()}`;
-    const newProject: Project = { id: newId, name };
+    const newProject: Project = { id: newId, name, pin: pin || undefined };
     const newProjects = [...projects, newProject];
     
     const initialData = getInitialProjectData();
@@ -121,6 +128,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     updateMeta(newProjects, newId);
+  };
+
+  const updateProject = (id: string, data: Partial<Omit<Project, 'id'>>) => {
+      const newProjects = projects.map(p => p.id === id ? { ...p, ...data } : p);
+      updateMeta(newProjects, activeProjectId);
   };
 
   const deleteProject = (id: string) => {
@@ -139,16 +151,27 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
     
     const remainingProjects = projects.filter(p => p.id !== id);
     const newActiveId = id === activeProjectId ? (remainingProjects[0]?.id ?? null) : activeProjectId;
+    
+    setUnlockedProjects(prev => {
+        const newUnlocked = { ...prev };
+        delete newUnlocked[id];
+        return newUnlocked;
+    });
+
     updateMeta(remainingProjects, newActiveId);
+  };
+
+  const unlockProject = (id: string) => {
+    setUnlockedProjects(prev => ({...prev, [id]: true}));
   };
   
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
 
-  const value = { projects, activeProjectId, activeProject, switchProject, createProject, deleteProject, isReady };
+  const value = { projects, activeProjectId, activeProject, switchProject, createProject, updateProject, deleteProject, isReady, unlockedProjects, unlockProject };
 
   return (
     <ProjectContext.Provider value={value}>
-      {isReady ? children : <div className="flex h-screen w-full items-center justify-center"><p className="text-lg font-semibold">Cargando Proyectos...</p></div>}
+      {children}
     </ProjectContext.Provider>
   );
 };
