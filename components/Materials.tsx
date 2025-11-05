@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { initialMaterials, initialMaterialOrders } from '../constants';
 import { Material, MaterialOrder } from '../types';
@@ -34,6 +34,31 @@ const Materials: React.FC = () => {
     const [selectedMaterialForSuppliers, setSelectedMaterialForSuppliers] = useState<Material | null>(null);
     
     const [notification, setNotification] = useState<string | null>(null);
+
+    const [sortOption, setSortOption] = useState<string>('default');
+
+    const sortedMaterials = useMemo(() => {
+        const materialsCopy = [...materials];
+        switch (sortOption) {
+            case 'quantity_asc':
+                return materialsCopy.sort((a, b) => a.quantity - b.quantity);
+            case 'quantity_desc':
+                return materialsCopy.sort((a, b) => b.quantity - a.quantity);
+            case 'critical_asc':
+                return materialsCopy.sort((a, b) => a.criticalStockLevel - b.criticalStockLevel);
+            case 'critical_desc':
+                return materialsCopy.sort((a, b) => b.criticalStockLevel - a.criticalStockLevel);
+            case 'proximity':
+                return materialsCopy.sort((a, b) => {
+                    const proximityA = a.criticalStockLevel > 0 ? a.quantity / a.criticalStockLevel : Infinity;
+                    const proximityB = b.criticalStockLevel > 0 ? b.quantity / b.criticalStockLevel : Infinity;
+                    return proximityA - proximityB;
+                });
+            case 'default':
+            default:
+                return materials;
+        }
+    }, [materials, sortOption]);
 
     useEffect(() => {
         if (notification) {
@@ -224,6 +249,23 @@ const Materials: React.FC = () => {
                 </button>
             </div>
 
+            <div className="mb-4 flex justify-end">
+                <label htmlFor="sort-materials" className="mr-2 self-center text-sm font-medium text-black">Ordenar por:</label>
+                <select 
+                    id="sort-materials"
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value)}
+                    className="p-2 border rounded-md bg-white text-black text-sm focus:ring-primary-500 focus:border-primary-500"
+                >
+                    <option value="default">Predeterminado</option>
+                    <option value="quantity_asc">Cantidad (Ascendente)</option>
+                    <option value="quantity_desc">Cantidad (Descendente)</option>
+                    <option value="critical_asc">Nivel Crítico (Ascendente)</option>
+                    <option value="critical_desc">Nivel Crítico (Descendente)</option>
+                    <option value="proximity">Proximidad a Nivel Crítico</option>
+                </select>
+            </div>
+
             <Card>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -238,7 +280,7 @@ const Materials: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {materials.map(material => (
+                            {sortedMaterials.map(material => (
                                 <tr key={material.id} className="border-b hover:bg-gray-50">
                                     <td className="p-3 font-medium">{material.name}</td>
                                     <td className="p-3">{material.quantity} {material.unit}</td>
