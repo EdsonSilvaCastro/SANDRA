@@ -5,12 +5,13 @@ import { Material, MaterialOrder, Worker, Task, TimeLog, BudgetCategory, Expense
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import { useProject } from '../contexts/ProjectContext';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 
 const Reports: React.FC = () => {
     const { activeProjectId } = useProject();
     const [reportType, setReportType] = useState<string | null>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     // Cargar todos los datos necesarios desde el almacenamiento local para el proyecto activo
     const [materials] = useLocalStorage<Material[]>(`constructpro_project_${activeProjectId}_materials`, initialMaterials);
@@ -29,6 +30,57 @@ const Reports: React.FC = () => {
         }
         if (task.status === 'Completado') return 100;
         return 0;
+    };
+
+    const handleDownloadChart = async () => {
+        if (!reportType) return;
+    
+        let elementId = '';
+        let filename = '';
+    
+        switch (reportType) {
+            case 'budget':
+                elementId = 'budget-report-chart';
+                filename = 'reporte_presupuesto_grafica.png';
+                break;
+            case 'labor':
+                elementId = 'labor-report-chart';
+                filename = 'reporte_mano_de_obra_grafica.png';
+                break;
+            case 'progress':
+                elementId = 'progress-report-chart';
+                filename = 'reporte_progreso_gantt.png';
+                break;
+            default:
+                return;
+        }
+    
+        const chartElement = document.getElementById(elementId);
+        if (!chartElement) {
+            alert('No se pudo encontrar el elemento del gráfico para descargar.');
+            return;
+        }
+    
+        setIsDownloading(true);
+        try {
+            const canvas = await (window as any).html2canvas(chartElement, {
+                 backgroundColor: '#ffffff',
+                 scale: 2 
+            });
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Error al descargar la gráfica:', error);
+            alert('Ocurrió un error al intentar descargar la gráfica.');
+        } finally {
+            setIsDownloading(false);
+        }
     };
 
     const exportToCsv = (filename: string, rows: (string | number | undefined)[][]) => {
@@ -124,13 +176,15 @@ const Reports: React.FC = () => {
             case 'photos': {
                 const data: (string | number | undefined)[][] = [];
                 data.push(['Reporte de Bitácora de Fotos']);
-                data.push(['ID', 'Descripción', 'Fecha de Subida', 'Etiquetas']);
+                data.push(['ID', 'Descripción', 'Fecha de Subida', 'Etiquetas', 'Tareas Vinculadas']);
                 photos.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()).forEach(photo => {
+                    const linkedTasks = tasks.filter(task => task.photoIds?.includes(photo.id));
                     data.push([
                         photo.id,
                         photo.description,
                         new Date(photo.uploadDate).toLocaleString(),
                         photo.tags.join(', '),
+                        linkedTasks.map(t => t.name).join('; ')
                     ]);
                 });
                 exportToCsv('reporte_fotos.csv', data);
@@ -151,6 +205,12 @@ const Reports: React.FC = () => {
     const renderBudgetReport = () => {
         const totalAllocated = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
         const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
+        const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
+        const expenseChartData = budgetCategories.map(cat => ({
+            name: cat.name,
+            value: expenses.filter(e => e.categoryId === cat.id).reduce((sum, e) => sum + e.amount, 0)
+        })).filter(d => d.value > 0);
+
         return (
             <div>
                 {generateReportHeader("Reporte de Presupuesto")}
@@ -178,6 +238,22 @@ const Reports: React.FC = () => {
                         })}
                     </tbody>
                 </table>
+                <h4 className="text-lg font-semibold my-4">Gráfico de Gasto por Categoría</h4>
+                <div id="budget-report-chart" className="p-4 bg-white break-inside-avoid">
+                    <div style={{ width: '100%', height: 300 }}>
+                        <ResponsiveContainer>
+                            <PieChart>
+                                <Pie data={expenseChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                                    {expenseChartData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
             </div>
         );
     };
@@ -229,6 +305,11 @@ const Reports: React.FC = () => {
     };
 
     const renderLaborReport = () => {
+        const productivityData = workers.map(worker => {
+            const hoursLogged = timeLogs.filter(log => log.workerId === worker.id).reduce((sum, log) => sum + log.hours, 0);
+            return { name: worker.name, horas: hoursLogged };
+        });
+
          return (
             <div>
                 {generateReportHeader("Reporte de Mano de Obra")}
@@ -250,6 +331,21 @@ const Reports: React.FC = () => {
                         })}
                     </tbody>
                 </table>
+                <h4 className="text-lg font-semibold my-4">Gráfico de Horas por Trabajador</h4>
+                <div id="labor-report-chart" className="p-4 bg-white break-inside-avoid">
+                    <div style={{ width: '100%', height: 300 }}>
+                        <ResponsiveContainer>
+                            <BarChart data={productivityData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="horas" fill="#3b82f6" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
             </div>
          )
     };
@@ -324,24 +420,26 @@ const Reports: React.FC = () => {
                     <div className="p-2 bg-red-100 rounded-lg"><p className="text-sm">Retrasadas</p><p className="text-xl font-bold">{tasksByStatus['Retrasado'] || 0}</p></div>
                  </div>
                  <h4 className="text-lg font-semibold my-4">Cronograma de Tareas</h4>
-                 <div style={{ width: '100%', height: 35 * sortedTasks.length + 60, minHeight: 250 }} className="break-inside-avoid">
-                     <ResponsiveContainer>
-                         <BarChart
-                             layout="vertical"
-                             data={chartData}
-                             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                             barCategoryGap="35%"
-                         >
-                             <CartesianGrid strokeDasharray="3 3" />
-                             <XAxis type="number" domain={[0, 'auto']} tickFormatter={tickFormatter} />
-                             <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12, fill: '#000' }} />
-                             <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(240, 240, 240, 0.5)'}} />
-                             <Legend wrapperStyle={{fontSize: "12px", paddingTop: "10px"}}/>
-                             <Bar dataKey="offset" stackId="a" fill="transparent" name="Periodo de Espera" />
-                             <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Progreso" />
-                             <Bar dataKey="remaining" stackId="a" fill="#d1d5db" name="Restante" />
-                         </BarChart>
-                     </ResponsiveContainer>
+                 <div id="progress-report-chart" className="p-4 bg-white">
+                    <div style={{ width: '100%', height: 35 * sortedTasks.length + 60, minHeight: 250 }} className="break-inside-avoid">
+                        <ResponsiveContainer>
+                            <BarChart
+                                layout="vertical"
+                                data={chartData}
+                                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                                barCategoryGap="35%"
+                            >
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis type="number" domain={[0, 'auto']} tickFormatter={tickFormatter} />
+                                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12, fill: '#000' }} />
+                                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(240, 240, 240, 0.5)'}} />
+                                <Legend wrapperStyle={{fontSize: "12px", paddingTop: "10px"}}/>
+                                <Bar dataKey="offset" stackId="a" fill="transparent" name="Periodo de Espera" />
+                                <Bar dataKey="completed" stackId="a" fill="#22c55e" name="Progreso" />
+                                <Bar dataKey="remaining" stackId="a" fill="#d1d5db" name="Restante" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                  </div>
 
                  {tasksWithPhotos.length > 0 && (
@@ -378,20 +476,36 @@ const Reports: React.FC = () => {
             <div>
                 {generateReportHeader("Reporte de Bitácora de Fotos")}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {sortedPhotos.map(photo => (
-                        <div key={photo.id} className="border rounded-lg p-3 break-inside-avoid">
-                            <img src={photo.url} alt={photo.description} className="w-full h-48 object-cover rounded-md mb-2" />
-                            <h5 className="font-bold text-black">{photo.description}</h5>
-                            <p className="text-xs text-black">Subido el: {new Date(photo.uploadDate).toLocaleString()}</p>
-                            {photo.tags.length > 0 && (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                    {photo.tags.map(tag => (
-                                        <span key={tag} className="px-2 py-0.5 bg-blue-100 text-black text-xs font-semibold rounded-full">{tag}</span>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                    {sortedPhotos.map(photo => {
+                        const linkedTasks = tasks.filter(task => task.photoIds?.includes(photo.id));
+                        return (
+                            <div key={photo.id} className="border rounded-lg p-3 break-inside-avoid">
+                                <img src={photo.url} alt={photo.description} className="w-full h-48 object-cover rounded-md mb-2" />
+                                <h5 className="font-bold text-black">{photo.description}</h5>
+                                <p className="text-xs text-black">Subido el: {new Date(photo.uploadDate).toLocaleString()}</p>
+                                {photo.tags.length > 0 && (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                        {photo.tags.map(tag => (
+                                            <span key={tag} className="px-2 py-0.5 bg-blue-100 text-black text-xs font-semibold rounded-full">{tag}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                {linkedTasks.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-gray-200">
+                                        <p className="text-xs font-semibold text-black">Vinculado a Tarea(s):</p>
+                                        <ul className="list-disc list-inside text-xs text-black">
+                                            {linkedTasks.map(task => (
+                                                <li key={task.id}>{task.name}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                     {sortedPhotos.length === 0 && (
+                        <p className="text-center col-span-full py-8 text-black">No hay fotos en la bitácora para mostrar en el reporte.</p>
+                    )}
                 </div>
             </div>
         );
@@ -451,6 +565,15 @@ const Reports: React.FC = () => {
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-3 no-print">
                     <button onClick={() => setReportType(null)} className="px-4 py-2 bg-gray-200 text-black rounded-md hover:bg-gray-300">Cerrar</button>
+                    {['budget', 'labor', 'progress'].includes(reportType || '') && (
+                        <button
+                            onClick={handleDownloadChart}
+                            disabled={isDownloading}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400"
+                        >
+                            {isDownloading ? 'Descargando...' : 'Descargar Gráfica'}
+                        </button>
+                    )}
                     <button onClick={handleExportExcel} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Exportar a Excel</button>
                     <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Imprimir / PDF</button>
                 </div>
