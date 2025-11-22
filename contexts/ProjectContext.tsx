@@ -1,7 +1,7 @@
 
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { User, Material, MaterialOrder, Worker, Task, TimeLog, BudgetCategory, Expense, Photo, Client, Interaction } from '../types';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isConfigured } from '../lib/supabaseClient';
 
 export interface Project {
   id: string;
@@ -108,6 +108,16 @@ const INITIAL_DATA: ProjectData = {
     interactions: []
 };
 
+// Helper to format error messages safely
+const formatError = (error: any): string => {
+    if (!error) return 'Unknown error';
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'object') {
+        return error.message || JSON.stringify(error);
+    }
+    return String(error);
+};
+
 export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User }> = ({ children, currentUser }) => {
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -121,26 +131,30 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   // 1. Load Projects and Users on mount
   useEffect(() => {
     const init = async () => {
+        if (!isConfigured) {
+            console.warn("Supabase is not configured. Skipping data fetch.");
+            setIsReady(true);
+            return;
+        }
+
         try {
             // Fetch Projects
             const { data: projectsData, error: projError } = await supabase.from('projects').select('*');
-            if (projError) {
-                console.error('Error fetching projects:', projError.message);
-            } else if (projectsData) {
+            if (projError) throw projError;
+            if (projectsData) {
                 setAllProjects(mapKeysToCamel(projectsData));
             }
 
             // Fetch Users
             const { data: usersData, error: usersError } = await supabase.from('users').select('*');
-            if (usersError) {
-                console.error('Error fetching users:', usersError.message);
-            } else if (usersData) {
+            if (usersError) throw usersError;
+            if (usersData) {
                 setAllUsers(mapKeysToCamel(usersData));
             }
             
-            setIsReady(true);
-        } catch (err) {
-            console.error('Unexpected initialization error:', err);
+        } catch (err: any) {
+            console.error('Initialization error:', formatError(err));
+        } finally {
             setIsReady(true);
         }
     };
@@ -170,7 +184,7 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   // 3. Fetch Project Data when activeProjectId changes
   useEffect(() => {
-    if (!activeProjectId) {
+    if (!activeProjectId || !isConfigured) {
         setProjectData(INITIAL_DATA);
         return;
     }
@@ -185,7 +199,7 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
                     .eq('project_id', activeProjectId);
                 
                 if (error) {
-                    console.error(`Error fetching ${table}:`, error.message);
+                    console.error(`Error fetching ${table}:`, formatError(error));
                     return [key, []];
                 }
                 return [key, mapKeysToCamel(data)];
@@ -198,8 +212,8 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
             });
             setProjectData(newData);
 
-        } catch (error) {
-            console.error("Error fetching project data:", error);
+        } catch (error: any) {
+            console.error("Error fetching project data:", formatError(error));
         } finally {
             setLoadingData(false);
         }
@@ -215,6 +229,10 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   };
 
   const createProject = async (name: string, pin?: string) => {
+    if (!isConfigured) {
+        throw new Error("Database not configured. Cannot create project.");
+    }
+
     const newProject = {
         id: `proj-${Date.now()}`,
         name,
@@ -222,40 +240,50 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
         owner_id: currentUser.id
     };
 
-    const { error } = await supabase.from('projects').insert(newProject);
-    
-    if (!error) {
-        const createdProject = mapKeysToCamel(newProject);
-        setAllProjects(prev => [...prev, createdProject]);
-        switchProject(createdProject.id);
-    } else {
-        console.error("Error creating project:", error.message);
-        throw error;
+    try {
+        const { data, error } = await supabase.from('projects').insert(newProject).select().single();
+        
+        if (error) throw error;
+        
+        if (data) {
+            const createdProject = mapKeysToCamel(data);
+            setAllProjects(prev => [...prev, createdProject]);
+            switchProject(createdProject.id);
+        }
+    } catch (error: any) {
+        console.error("Error creating project:", formatError(error));
+        throw new Error(error.message || "Failed to create project");
     }
   };
 
   const updateProject = async (id: string, data: Partial<Omit<Project, 'id' | 'ownerId'>>) => {
-    const dbData = mapKeysToSnake(data);
-    const { error } = await supabase.from('projects').update(dbData).eq('id', id);
+    if (!isConfigured) return;
+    try {
+        const dbData = mapKeysToSnake(data);
+        const { error } = await supabase.from('projects').update(dbData).eq('id', id);
 
-    if (!error) {
+        if (error) throw error;
+        
         setAllProjects(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
-    } else {
-        console.error("Error updating project:", error.message);
+    } catch (error: any) {
+        console.error("Error updating project:", formatError(error));
         throw error;
     }
   };
 
   const deleteProject = async (id: string) => {
-    const { error } = await supabase.from('projects').delete().eq('id', id);
-    
-    if (!error) {
+    if (!isConfigured) return;
+    try {
+        const { error } = await supabase.from('projects').delete().eq('id', id);
+        
+        if (error) throw error;
+        
         setAllProjects(prev => prev.filter(p => p.id !== id));
         if (activeProjectId === id) {
             setActiveProjectId(null);
         }
-    } else {
-         console.error("Error deleting project:", error.message);
+    } catch (error: any) {
+         console.error("Error deleting project:", formatError(error));
          throw error;
     }
   };
@@ -267,83 +295,99 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   // --- Generic CRUD for Project Data ---
 
   const addItem = async (resource: keyof ProjectData, item: any) => {
-      if (!activeProjectId) return;
-      const itemWithProject = { ...item, project_id: activeProjectId };
-      const dbItem = mapKeysToSnake(itemWithProject);
-      
-      const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
-      
-      if (!error) {
+      if (!activeProjectId || !isConfigured) return;
+      try {
+          const itemWithProject = { ...item, project_id: activeProjectId };
+          const dbItem = mapKeysToSnake(itemWithProject);
+          
+          const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
+          
+          if (error) throw error;
+          
           setProjectData(prev => ({
               ...prev,
               [resource]: [...prev[resource], item]
           }));
-      } else {
-          console.error(`Error adding to ${resource}:`, error.message);
+      } catch (error: any) {
+          console.error(`Error adding to ${resource}:`, formatError(error));
           throw error;
       }
   };
 
   const updateItem = async (resource: keyof ProjectData, id: string, item: any) => {
-      const dbItem = mapKeysToSnake(item);
-      delete dbItem.project_id; 
-      
-      const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
-      
-      if (!error) {
+      if (!isConfigured) return;
+      try {
+          const dbItem = mapKeysToSnake(item);
+          delete dbItem.project_id; 
+          
+          const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
+          
+          if (error) throw error;
+          
           setProjectData(prev => ({
               ...prev,
               [resource]: prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i)
           }));
-      } else {
-          console.error(`Error updating ${resource}:`, error.message);
+      } catch (error: any) {
+          console.error(`Error updating ${resource}:`, formatError(error));
           throw error;
       }
   };
 
   const deleteItem = async (resource: keyof ProjectData, id: string) => {
-      const { error } = await supabase.from(TABLE_MAP[resource]).delete().eq('id', id);
-      
-      if (!error) {
+      if (!isConfigured) return;
+      try {
+          const { error } = await supabase.from(TABLE_MAP[resource]).delete().eq('id', id);
+          
+          if (error) throw error;
+          
           setProjectData(prev => ({
               ...prev,
               [resource]: prev[resource].filter((i: any) => i.id !== id)
           }));
-      } else {
-          console.error(`Error deleting from ${resource}:`, error.message);
+      } catch (error: any) {
+          console.error(`Error deleting from ${resource}:`, formatError(error));
           throw error;
       }
   };
 
   // --- User Management ---
   const addUser = async (user: User) => {
-      const dbUser = mapKeysToSnake(user);
-      const { error } = await supabase.from('users').insert(dbUser);
-      if (!error) {
+      if (!isConfigured) {
+          throw new Error("Database not configured.");
+      }
+      try {
+          const dbUser = mapKeysToSnake(user);
+          const { error } = await supabase.from('users').insert(dbUser);
+          if (error) throw error;
           setAllUsers(prev => [...prev, user]);
-      } else {
-          console.error("Error adding user:", error.message);
+      } catch (error: any) {
+          console.error("Error adding user:", formatError(error));
           throw error;
       }
   };
 
   const updateUser = async (id: string, user: Partial<User>) => {
-      const dbUser = mapKeysToSnake(user);
-      const { error } = await supabase.from('users').update(dbUser).eq('id', id);
-      if (!error) {
+      if (!isConfigured) return;
+      try {
+          const dbUser = mapKeysToSnake(user);
+          const { error } = await supabase.from('users').update(dbUser).eq('id', id);
+          if (error) throw error;
           setAllUsers(prev => prev.map(u => u.id === id ? { ...u, ...user } : u));
-      } else {
-          console.error("Error updating user:", error.message);
+      } catch (error: any) {
+          console.error("Error updating user:", formatError(error));
           throw error;
       }
   };
 
   const deleteUser = async (id: string) => {
-      const { error } = await supabase.from('users').delete().eq('id', id);
-      if (!error) {
+      if (!isConfigured) return;
+      try {
+          const { error } = await supabase.from('users').delete().eq('id', id);
+          if (error) throw error;
           setAllUsers(prev => prev.filter(u => u.id !== id));
-      } else {
-           console.error("Error deleting user:", error.message);
+      } catch (error: any) {
+           console.error("Error deleting user:", formatError(error));
            throw error;
       }
   };

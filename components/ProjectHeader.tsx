@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useProject, Project } from '../contexts/ProjectContext';
 import Modal from './ui/Modal';
@@ -18,6 +19,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
     
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectPin, setNewProjectPin] = useState('');
+    const [actionError, setActionError] = useState<string | null>(null);
     
     const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
@@ -25,12 +27,18 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
 
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
 
-    const handleCreateProject = (e: React.FormEvent) => {
+    const handleCreateProject = async (e: React.FormEvent) => {
         e.preventDefault();
+        setActionError(null);
         if (newProjectName.trim()) {
-            createProject(newProjectName.trim(), newProjectPin.trim() || undefined);
-            setNewProjectName('');
-            setNewProjectPin('');
+            try {
+                await createProject(newProjectName.trim(), newProjectPin.trim() || undefined);
+                setNewProjectName('');
+                setNewProjectPin('');
+                setIsManageModalOpen(false);
+            } catch (error: any) {
+                setActionError("No se pudo crear el proyecto. Verifica tu conexión a Supabase.");
+            }
         }
     };
 
@@ -38,14 +46,19 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
         setProjectToEdit({ ...project });
         setIsManageModalOpen(false);
         setIsEditModalOpen(true);
+        setActionError(null);
     };
 
-    const handleUpdateProject = () => {
+    const handleUpdateProject = async () => {
         if (projectToEdit && projectToEdit.name.trim()) {
-            updateProject(projectToEdit.id, { name: projectToEdit.name.trim(), pin: projectToEdit.pin?.trim() || undefined });
+            try {
+                await updateProject(projectToEdit.id, { name: projectToEdit.name.trim(), pin: projectToEdit.pin?.trim() || undefined });
+                setIsEditModalOpen(false);
+                setProjectToEdit(null);
+            } catch (err) {
+                alert("Error al actualizar el proyecto");
+            }
         }
-        setIsEditModalOpen(false);
-        setProjectToEdit(null);
     };
 
     const handleSaveChanges = () => {
@@ -60,9 +73,13 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
         });
     };
 
-    const confirmDeleteProject = () => {
+    const confirmDeleteProject = async () => {
         if (deleteConfirmation.id) {
-            deleteProject(deleteConfirmation.id);
+            try {
+                await deleteProject(deleteConfirmation.id);
+            } catch (err) {
+                alert("Error al eliminar el proyecto");
+            }
         }
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
@@ -120,7 +137,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                 </div>
             </div>
 
-            <Modal isOpen={isManageModalOpen} onClose={() => setIsManageModalOpen(false)} title="Gestionar Proyectos">
+            <Modal isOpen={isManageModalOpen} onClose={() => {setIsManageModalOpen(false); setActionError(null);}} title="Gestionar Proyectos">
                 <div className="space-y-6">
                     <div>
                         <h3 className="text-lg font-semibold text-black mb-2">Crear Nuevo Proyecto</h3>
@@ -141,6 +158,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                                 maxLength={4}
                                 className="w-full p-2 border rounded bg-white text-black placeholder-gray-500"
                             />
+                            {actionError && <p className="text-sm text-red-600">{actionError}</p>}
                             <button
                                 type="submit"
                                 className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
