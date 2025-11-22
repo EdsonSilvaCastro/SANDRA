@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useProject, Project } from '../contexts/ProjectContext';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import { User } from '../types';
 
 interface ProjectHeaderProps {
@@ -21,6 +22,8 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
     const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
     const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
+
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
 
     const handleCreateProject = (e: React.FormEvent) => {
         e.preventDefault();
@@ -47,6 +50,21 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
 
     const handleSaveChanges = () => {
         setShowSaveConfirmation(true);
+    };
+    
+    const handleDeleteClick = (project: Project) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            id: project.id,
+            name: project.name
+        });
+    };
+
+    const confirmDeleteProject = () => {
+        if (deleteConfirmation.id) {
+            deleteProject(deleteConfirmation.id);
+        }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
 
     useEffect(() => {
@@ -150,7 +168,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                                         </button>
                                          <button onClick={() => handleOpenEditModal(project)} className="px-3 py-1 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">Editar</button>
                                          <button
-                                            onClick={() => deleteProject(project.id)}
+                                            onClick={() => handleDeleteClick(project)}
                                             className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
                                         >
                                             Eliminar
@@ -189,6 +207,16 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                     </div>
                 </Modal>
             )}
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteProject}
+                title="Eliminar Proyecto"
+                message={`¿Estás seguro de que quieres eliminar el proyecto "${deleteConfirmation.name}"? Esta acción es irreversible y borrará todos sus datos.`}
+                confirmText="Eliminar Proyecto"
+                isDangerous={true}
+            />
         </>
     );
 };

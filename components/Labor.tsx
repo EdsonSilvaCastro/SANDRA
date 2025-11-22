@@ -5,6 +5,7 @@ import { initialWorkers, initialTasks, initialTimeLogs } from '../constants';
 import { Worker, Task, TimeLog } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import { useProject } from '../contexts/ProjectContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -21,6 +22,8 @@ const Labor: React.FC = () => {
     const [currentWorker, setCurrentWorker] = useState<Partial<Worker>>({});
     const [isEditingWorker, setIsEditingWorker] = useState(false);
     const [newTimeLog, setNewTimeLog] = useState<Partial<TimeLog>>({ hours: 8, date: new Date().toISOString().split('T')[0] });
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+    const [validationError, setValidationError] = useState<string>('');
 
     const productivityData = workers.map(worker => {
         const hoursLogged = timeLogs.filter(log => log.workerId === worker.id).reduce((sum, log) => sum + log.hours, 0);
@@ -28,6 +31,7 @@ const Labor: React.FC = () => {
     });
 
     const handleOpenWorkerModal = (worker?: Worker) => {
+        setValidationError('');
         if (worker) {
             setCurrentWorker(worker);
             setIsEditingWorker(true);
@@ -40,7 +44,7 @@ const Labor: React.FC = () => {
 
     const handleSaveWorker = () => {
         if (!currentWorker.name || !currentWorker.role || currentWorker.hourlyRate === undefined || currentWorker.hourlyRate < 0) {
-            alert('Por favor, complete todos los campos correctamente.');
+            setValidationError('Por favor, complete todos los campos correctamente. La tarifa debe ser un valor positivo.');
             return;
         }
 
@@ -50,9 +54,10 @@ const Labor: React.FC = () => {
             setWorkers([...workers, { ...currentWorker, id: `wrk-${Date.now()}` } as Worker]);
         }
         setIsWorkerModalOpen(false);
+        setValidationError('');
     };
     
-    const handleDeleteWorker = (workerId: string) => {
+    const handleDeleteWorkerClick = (workerId: string) => {
         const workerToDelete = workers.find(w => w.id === workerId);
         if (!workerToDelete) return;
 
@@ -63,16 +68,36 @@ const Labor: React.FC = () => {
             alert(`No se puede eliminar a "${workerToDelete.name}" porque tiene tareas asignadas o registros de tiempo. Por favor, reasigne las tareas y elimine los registros de tiempo asociados antes de eliminar al trabajador.`);
             return;
         }
-
-        if (window.confirm(`¿Estás seguro de que quieres eliminar a "${workerToDelete.name}"?`)) {
-            setWorkers(workers.filter(w => w.id !== workerId));
-        }
+        setDeleteConfirmation({ isOpen: true, id: workerId, name: workerToDelete.name });
     };
 
+    const confirmDeleteWorker = () => {
+        if (deleteConfirmation.id) {
+            setWorkers(workers.filter(w => w.id !== deleteConfirmation.id));
+        }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
+    };
+    
+    const handleOpenTimeLogModal = () => {
+        setValidationError('');
+        setNewTimeLog({ hours: 8, date: new Date().toISOString().split('T')[0] });
+        setIsTimeLogModalOpen(true);
+    }
+
     const handleSaveTimeLog = () => {
+        if (!newTimeLog.workerId || !newTimeLog.taskId || !newTimeLog.hours || !newTimeLog.date) {
+            setValidationError('Todos los campos son obligatorios para registrar horas.');
+            return;
+        }
+        if (newTimeLog.hours <= 0) {
+            setValidationError('Las horas trabajadas deben ser mayores a 0.');
+            return;
+        }
+
         if (newTimeLog.taskId && newTimeLog.workerId && newTimeLog.hours) {
             setTimeLogs([...timeLogs, { ...newTimeLog, id: `log-${Date.now()}` } as TimeLog]);
             setIsTimeLogModalOpen(false);
+            setValidationError('');
         }
     };
 
@@ -88,7 +113,7 @@ const Labor: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Gestión de Mano de Obra</h2>
                 <div>
-                    <button onClick={() => setIsTimeLogModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors mr-2">
+                    <button onClick={handleOpenTimeLogModal} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors mr-2">
                         Registrar Horas
                     </button>
                     <button onClick={() => handleOpenWorkerModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
@@ -124,7 +149,7 @@ const Labor: React.FC = () => {
                                         <td className="p-3 font-semibold">${totalCost.toFixed(2)}</td>
                                         <td className="p-3 whitespace-nowrap">
                                             <button onClick={() => handleOpenWorkerModal(worker)} className="text-black hover:text-gray-600 font-medium">Editar</button>
-                                            <button onClick={() => handleDeleteWorker(worker.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
+                                            <button onClick={() => handleDeleteWorkerClick(worker.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
                                         </td>
                                     </tr>
                                 );
@@ -157,29 +182,40 @@ const Labor: React.FC = () => {
 
             <Modal isOpen={isWorkerModalOpen} onClose={() => setIsWorkerModalOpen(false)} title={isEditingWorker ? 'Editar Trabajador' : 'Añadir Trabajador'}>
                 <div className="space-y-4">
-                    <input type="text" placeholder="Nombre" value={currentWorker.name || ''} onChange={e => setCurrentWorker({...currentWorker, name: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="text" placeholder="Cargo" value={currentWorker.role || ''} onChange={e => setCurrentWorker({...currentWorker, role: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="number" placeholder="Tarifa por Hora" value={currentWorker.hourlyRate ?? ''} onChange={e => setCurrentWorker({...currentWorker, hourlyRate: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="text" placeholder="Nombre" value={currentWorker.name || ''} onChange={e => {setCurrentWorker({...currentWorker, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="text" placeholder="Cargo" value={currentWorker.role || ''} onChange={e => {setCurrentWorker({...currentWorker, role: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="number" placeholder="Tarifa por Hora" value={currentWorker.hourlyRate ?? ''} onChange={e => {setCurrentWorker({...currentWorker, hourlyRate: parseFloat(e.target.value) || 0}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveWorker} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Trabajador</button>
                 </div>
             </Modal>
             
             <Modal isOpen={isTimeLogModalOpen} onClose={() => setIsTimeLogModalOpen(false)} title="Registrar Horas Trabajadas">
                  <div className="space-y-4">
-                    <select value={newTimeLog.workerId || ''} onChange={e => setNewTimeLog({...newTimeLog, workerId: e.target.value})} className="w-full p-2 border rounded bg-white text-black">
+                    <select value={newTimeLog.workerId || ''} onChange={e => {setNewTimeLog({...newTimeLog, workerId: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black">
                         <option value="">Seleccionar Trabajador</option>
                         {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
-                    <select value={newTimeLog.taskId || ''} onChange={e => setNewTimeLog({...newTimeLog, taskId: e.target.value})} className="w-full p-2 border rounded bg-white text-black">
+                    <select value={newTimeLog.taskId || ''} onChange={e => {setNewTimeLog({...newTimeLog, taskId: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black">
                         <option value="">Seleccionar Tarea</option>
                         {tasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
-                    <input type="date" value={newTimeLog.date || ''} onChange={e => setNewTimeLog({...newTimeLog, date: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
-                    <input type="number" placeholder="Horas Trabajadas" value={newTimeLog.hours || ''} onChange={e => setNewTimeLog({...newTimeLog, hours: parseFloat(e.target.value)})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="date" value={newTimeLog.date || ''} onChange={e => {setNewTimeLog({...newTimeLog, date: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
+                    <input type="number" placeholder="Horas Trabajadas" value={newTimeLog.hours || ''} onChange={e => {setNewTimeLog({...newTimeLog, hours: parseFloat(e.target.value)}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveTimeLog} className="w-full py-2 bg-green-600 text-white rounded hover:bg-green-700">Registrar Horas</button>
                  </div>
             </Modal>
 
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteWorker}
+                title="Eliminar Trabajador"
+                message={`¿Estás seguro de que quieres eliminar a "${deleteConfirmation.name}"?`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
         </div>
     );
 };

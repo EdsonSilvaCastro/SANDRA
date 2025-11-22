@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -65,7 +66,7 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
   if (isReady && projects.length === 0) {
     return (
         <div className="flex h-screen bg-gray-100 font-sans">
-            <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+            <Sidebar currentView={currentView} setCurrentView={setCurrentView} currentUser={currentUser} />
             <div className="flex-1 flex flex-col overflow-hidden">
                 <ProjectHeader onLogout={onLogout} currentUser={currentUser} isManageModalOpen={isManageModalOpen} setIsManageModalOpen={setIsManageModalOpen} />
                 <main className="flex-1 flex items-center justify-center bg-gray-100">
@@ -104,6 +105,8 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
   }
 
   const renderView = () => {
+    const isAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@constructpro.com';
+
     switch (currentView) {
       case 'Panel':
         return <Dashboard />;
@@ -120,7 +123,7 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
       case 'Reportes':
         return <Reports />;
       case 'CRM / Clientes':
-        return <CRM />;
+        return isAdmin ? <CRM /> : <Dashboard />;
       case 'CMS':
         return <CMS />;
       default:
@@ -130,7 +133,7 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans print:block print:h-auto">
-      <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+      <Sidebar currentView={currentView} setCurrentView={setCurrentView} currentUser={currentUser} />
       <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible print:block">
         <ProjectHeader onLogout={onLogout} currentUser={currentUser} isManageModalOpen={isManageModalOpen} setIsManageModalOpen={setIsManageModalOpen}/>
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 print:overflow-visible print:block">

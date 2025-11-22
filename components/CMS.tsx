@@ -1,9 +1,11 @@
+
 import React, { useState } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { initialCmsEntries } from '../constants';
 import { ContentEntry } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import { useProject } from '../contexts/ProjectContext';
 
 const CMS: React.FC = () => {
@@ -13,8 +15,11 @@ const CMS: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentEntry, setCurrentEntry] = useState<Partial<ContentEntry>>({});
     const [isEditing, setIsEditing] = useState(false);
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+    const [validationError, setValidationError] = useState<string>('');
 
     const handleOpenModal = (entry?: ContentEntry) => {
+        setValidationError('');
         if (entry) {
             setCurrentEntry({ ...entry, tags: entry.tags || [] });
             setIsEditing(true);
@@ -34,11 +39,12 @@ const CMS: React.FC = () => {
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setCurrentEntry({});
+        setValidationError('');
     };
 
     const handleSaveEntry = () => {
         if (!currentEntry.title || !currentEntry.content) {
-            alert("El título y el contenido son obligatorios.");
+            setValidationError("El título y el contenido son obligatorios.");
             return;
         }
 
@@ -66,11 +72,18 @@ const CMS: React.FC = () => {
         handleCloseModal();
     };
 
-    const handleDeleteEntry = (entryId: string) => {
+    const handleDeleteEntryClick = (entryId: string) => {
         const entry = entries.find(e => e.id === entryId);
-        if (entry && window.confirm(`¿Estás seguro de que quieres eliminar la entrada "${entry.title}"?`)) {
-            setEntries(entries.filter(e => e.id !== entryId));
+        if (entry) {
+            setDeleteConfirmation({ isOpen: true, id: entryId, name: entry.title });
         }
+    };
+
+    const confirmDeleteEntry = () => {
+        if (deleteConfirmation.id) {
+            setEntries(entries.filter(e => e.id !== deleteConfirmation.id));
+        }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -80,6 +93,7 @@ const CMS: React.FC = () => {
         } else {
             setCurrentEntry(prev => ({ ...prev, [name]: value }));
         }
+        if (validationError) setValidationError('');
     };
 
     const getStatusColor = (status: ContentEntry['status']) => {
@@ -124,7 +138,7 @@ const CMS: React.FC = () => {
                                     <td className="p-3 text-sm text-black">{new Date(entry.updatedAt).toLocaleString()}</td>
                                     <td className="p-3 whitespace-nowrap">
                                         <button onClick={() => handleOpenModal(entry)} className="text-black hover:text-gray-600 font-medium">Editar</button>
-                                        <button onClick={() => handleDeleteEntry(entry.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
+                                        <button onClick={() => handleDeleteEntryClick(entry.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
                                     </td>
                                 </tr>
                             ))}
@@ -146,9 +160,20 @@ const CMS: React.FC = () => {
                         </select>
                     </div>
                     <input name="tags" value={(currentEntry.tags || []).join(', ')} onChange={handleInputChange} placeholder="Etiquetas (separadas por coma)" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveEntry} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Entrada</button>
                 </div>
             </Modal>
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteEntry}
+                title="Eliminar Entrada"
+                message={`¿Estás seguro de que quieres eliminar la entrada "${deleteConfirmation.name}"?`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
         </div>
     );
 };

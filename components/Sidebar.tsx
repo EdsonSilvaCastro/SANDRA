@@ -1,14 +1,25 @@
+
 import React from 'react';
 import { View } from '../App';
 import { ICONS } from '../constants';
+import { User } from '../types';
 
 interface SidebarProps {
   currentView: View;
   setCurrentView: (view: View) => void;
+  currentUser: User;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
-  const navItems: View[] = ['Panel', 'Materiales', 'Mano de Obra', 'Presupuesto', 'Planificación', 'Bitácora de Fotos', 'CRM / Clientes', 'Reportes', 'CMS'];
+const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, currentUser }) => {
+  const allNavItems: View[] = ['Panel', 'Materiales', 'Mano de Obra', 'Presupuesto', 'Planificación', 'Bitácora de Fotos', 'CRM / Clientes', 'Reportes', 'CMS'];
+
+  // Check if user is admin (by role or by email for backward compatibility)
+  const isAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@constructpro.com';
+
+  const navItems = allNavItems.filter(item => {
+      if (item === 'CRM / Clientes') return isAdmin;
+      return true;
+  });
 
   return (
     <div className="flex flex-col w-64 bg-white shadow-lg no-print">

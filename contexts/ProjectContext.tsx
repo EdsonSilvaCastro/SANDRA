@@ -1,5 +1,5 @@
+
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { initialMaterials, initialWorkers, initialTasks, initialTimeLogs, initialBudgetCategories, initialExpenses, initialPhotos, initialMaterialOrders, initialClients, initialInteractions, initialCmsEntries } from '../constants';
 import { User } from '../types';
 
 export interface Project {
@@ -27,17 +27,17 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 const DATA_KEYS = ['materials', 'materialOrders', 'workers', 'tasks', 'timeLogs', 'budgetCategories', 'expenses', 'photos', 'clients', 'interactions', 'cms_entries'];
 
 const getInitialProjectData = () => ({
-    materials: initialMaterials,
-    materialOrders: initialMaterialOrders,
-    workers: initialWorkers,
-    tasks: initialTasks,
-    timeLogs: initialTimeLogs,
-    budgetCategories: initialBudgetCategories,
-    expenses: initialExpenses,
-    photos: initialPhotos,
-    clients: initialClients,
-    interactions: initialInteractions,
-    cms_entries: initialCmsEntries,
+    materials: [],
+    materialOrders: [],
+    workers: [],
+    tasks: [],
+    timeLogs: [],
+    budgetCategories: [],
+    expenses: [],
+    photos: [],
+    clients: [],
+    interactions: [],
+    cms_entries: [],
 });
 
 
@@ -129,10 +129,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   const deleteProject = (id: string) => {
     const projectToDelete = userProjects.find(p => p.id === id);
-    if (!projectToDelete || !window.confirm(`¿Estás seguro de que quieres eliminar el proyecto "${projectToDelete.name}"? Esta acción es irreversible y borrará todos sus datos.`)) {
+    if (!projectToDelete) {
         return;
     }
-
+    // Confirmación eliminada de aquí para manejarla en la UI
+    
     DATA_KEYS.forEach(key => {
         localStorage.removeItem(`constructpro_project_${id}_${key}`);
     });

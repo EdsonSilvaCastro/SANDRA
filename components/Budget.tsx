@@ -5,6 +5,7 @@ import { initialBudgetCategories, initialExpenses } from '../constants';
 import { BudgetCategory, Expense } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
 import { useProject } from '../contexts/ProjectContext';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -30,6 +31,10 @@ const Budget: React.FC = () => {
     const [currentCategory, setCurrentCategory] = useState<Partial<BudgetCategory>>({});
     const [isEditingCategory, setIsEditingCategory] = useState(false);
 
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+    const [validationError, setValidationError] = useState<string>('');
+
+
     const totalAllocatedFromCategories = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
     const displayTotalBudget = totalProjectBudget ?? totalAllocatedFromCategories;
     const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
@@ -49,6 +54,7 @@ const Budget: React.FC = () => {
     })).filter(d => d.value > 0);
 
     const handleOpenExpenseModal = (expense?: Expense) => {
+        setValidationError('');
         if (expense) {
             setCurrentExpense(expense);
             setIsEditingExpense(true);
@@ -63,28 +69,40 @@ const Budget: React.FC = () => {
         setIsExpenseModalOpen(false);
         setCurrentExpense({});
         setIsEditingExpense(false);
+        setValidationError('');
     };
 
     const handleSaveExpense = () => {
-        if (currentExpense.description && currentExpense.amount && currentExpense.categoryId) {
-            if (isEditingExpense) {
-                setExpenses(expenses.map(exp => exp.id === currentExpense.id ? currentExpense as Expense : exp));
-            } else {
-                setExpenses([...expenses, { ...currentExpense, id: `exp-${Date.now()}` } as Expense]);
-            }
-            handleCloseExpenseModal();
+        if (!currentExpense.description || !currentExpense.amount || !currentExpense.categoryId || !currentExpense.date) {
+            setValidationError('Por favor, complete todos los campos (Descripción, Monto, Categoría, Fecha).');
+            return;
         }
+
+        if (isEditingExpense) {
+            setExpenses(expenses.map(exp => exp.id === currentExpense.id ? currentExpense as Expense : exp));
+        } else {
+            setExpenses([...expenses, { ...currentExpense, id: `exp-${Date.now()}` } as Expense]);
+        }
+        handleCloseExpenseModal();
     };
     
-    const handleDeleteExpense = (expenseId: string) => {
+    const handleDeleteExpenseClick = (expenseId: string) => {
         const expenseToDelete = expenses.find(e => e.id === expenseId);
-        if (expenseToDelete && window.confirm(`¿Estás seguro de que quieres eliminar el gasto "${expenseToDelete.description}"?`)) {
-            setExpenses(expenses.filter(e => e.id !== expenseId));
+        if (expenseToDelete) {
+            setDeleteConfirmation({ isOpen: true, id: expenseId, name: expenseToDelete.description });
         }
+    };
+
+    const confirmDeleteExpense = () => {
+        if (deleteConfirmation.id) {
+            setExpenses(expenses.filter(e => e.id !== deleteConfirmation.id));
+        }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
     
     // Handlers for category modal
     const handleOpenCategoryModal = (category?: BudgetCategory) => {
+        setValidationError('');
         if (category) {
             setCurrentCategory(category);
             setIsEditingCategory(true);
@@ -98,18 +116,22 @@ const Budget: React.FC = () => {
     const handleCloseCategoryModal = () => {
         setIsCategoryModalOpen(false);
         setCurrentCategory({});
+        setValidationError('');
     };
 
     const handleSaveCategory = () => {
-        if (currentCategory.name && currentCategory.allocated !== undefined && currentCategory.allocated >= 0) {
-            if (isEditingCategory) {
-                setBudgetCategories(budgetCategories.map(c => c.id === currentCategory.id ? currentCategory as BudgetCategory : c));
-            } else {
-                const newCategory: BudgetCategory = { id: `cat-${Date.now()}`, name: currentCategory.name, allocated: currentCategory.allocated };
-                setBudgetCategories([...budgetCategories, newCategory]);
-            }
-            handleCloseCategoryModal();
+        if (!currentCategory.name || currentCategory.allocated === undefined || currentCategory.allocated < 0) {
+            setValidationError('Por favor, ingrese un nombre y un monto válido.');
+            return;
         }
+        
+        if (isEditingCategory) {
+            setBudgetCategories(budgetCategories.map(c => c.id === currentCategory.id ? currentCategory as BudgetCategory : c));
+        } else {
+            const newCategory: BudgetCategory = { id: `cat-${Date.now()}`, name: currentCategory.name, allocated: currentCategory.allocated };
+            setBudgetCategories([...budgetCategories, newCategory]);
+        }
+        handleCloseCategoryModal();
     };
 
     // Handlers for editing total budget
@@ -203,7 +225,7 @@ const Budget: React.FC = () => {
                                         <td className="p-3 text-right font-semibold">${exp.amount.toFixed(2)}</td>
                                         <td className="p-3 text-center whitespace-nowrap">
                                             <button onClick={() => handleOpenExpenseModal(exp)} className="text-black hover:text-gray-600 font-medium text-sm">Editar</button>
-                                            <button onClick={() => handleDeleteExpense(exp.id)} className="ml-3 text-red-600 hover:text-red-800 font-medium text-sm">Eliminar</button>
+                                            <button onClick={() => handleDeleteExpenseClick(exp.id)} className="ml-3 text-red-600 hover:text-red-800 font-medium text-sm">Eliminar</button>
                                         </td>
                                     </tr>
                                 ))}
@@ -262,24 +284,36 @@ const Budget: React.FC = () => {
 
             <Modal isOpen={isExpenseModalOpen} onClose={handleCloseExpenseModal} title={isEditingExpense ? 'Editar Gasto' : 'Añadir Nuevo Gasto'}>
                 <div className="space-y-4">
-                    <input type="text" placeholder="Descripción" value={currentExpense.description || ''} onChange={e => setCurrentExpense({...currentExpense, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="number" placeholder="Monto" value={currentExpense.amount || ''} onChange={e => setCurrentExpense({...currentExpense, amount: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <select value={currentExpense.categoryId || ''} onChange={e => setCurrentExpense({...currentExpense, categoryId: e.target.value})} className="w-full p-2 border rounded bg-white text-black">
+                    <input type="text" placeholder="Descripción" value={currentExpense.description || ''} onChange={e => {setCurrentExpense({...currentExpense, description: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="number" placeholder="Monto" value={currentExpense.amount || ''} onChange={e => {setCurrentExpense({...currentExpense, amount: parseFloat(e.target.value) || 0}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <select value={currentExpense.categoryId || ''} onChange={e => {setCurrentExpense({...currentExpense, categoryId: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black">
                         <option value="">Seleccionar Categoría</option>
                         {budgetCategories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                     </select>
-                    <input type="date" value={currentExpense.date || ''} onChange={e => setCurrentExpense({...currentExpense, date: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
+                    <input type="date" value={currentExpense.date || ''} onChange={e => {setCurrentExpense({...currentExpense, date: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveExpense} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Gasto</button>
                 </div>
             </Modal>
             
             <Modal isOpen={isCategoryModalOpen} onClose={handleCloseCategoryModal} title={isEditingCategory ? 'Editar Categoría' : 'Añadir Nueva Categoría'}>
                 <div className="space-y-4">
-                    <input type="text" placeholder="Nombre de la Categoría" value={currentCategory.name || ''} onChange={e => setCurrentCategory({...currentCategory, name: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="number" placeholder="Monto Asignado" value={currentCategory.allocated || ''} onChange={e => setCurrentCategory({...currentCategory, allocated: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="text" placeholder="Nombre de la Categoría" value={currentCategory.name || ''} onChange={e => {setCurrentCategory({...currentCategory, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="number" placeholder="Monto Asignado" value={currentCategory.allocated || ''} onChange={e => {setCurrentCategory({...currentCategory, allocated: parseFloat(e.target.value) || 0}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveCategory} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar</button>
                 </div>
             </Modal>
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteExpense}
+                title="Eliminar Gasto"
+                message={`¿Estás seguro de que quieres eliminar el gasto "${deleteConfirmation.name}"?`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
         </div>
     );
 };

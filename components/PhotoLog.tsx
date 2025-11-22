@@ -16,18 +16,35 @@ const PhotoLog: React.FC = () => {
     const [newPhoto, setNewPhoto] = useState<Partial<Photo>>({ tags: [] });
     const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [validationError, setValidationError] = useState<string>('');
+
+    const handleOpenUploadModal = () => {
+        setValidationError('');
+        setNewPhoto({ tags: [] });
+        setIsUploadModalOpen(true);
+    };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const reader = new FileReader();
             reader.onload = (event) => {
                 setNewPhoto(prev => ({ ...prev, url: event.target?.result as string }));
+                setValidationError('');
             };
             reader.readAsDataURL(e.target.files[0]);
         }
     };
 
     const handleSavePhoto = () => {
+        if (!newPhoto.url) {
+            setValidationError('Por favor, seleccione una imagen para subir.');
+            return;
+        }
+        if (!newPhoto.description) {
+             setValidationError('Por favor, ingrese una descripción para la foto.');
+             return;
+        }
+
         if (newPhoto.url && newPhoto.description) {
             const photoToSave: Photo = {
                 id: `photo-${Date.now()}`,
@@ -39,6 +56,7 @@ const PhotoLog: React.FC = () => {
             setPhotos([...photos, photoToSave]);
             setIsUploadModalOpen(false);
             setNewPhoto({ tags: [] });
+            setValidationError('');
         }
     };
     
@@ -66,7 +84,7 @@ const PhotoLog: React.FC = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full md:w-64 p-2 border rounded-md"
                     />
-                    <button onClick={() => setIsUploadModalOpen(true)} className="flex-shrink-0 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                    <button onClick={handleOpenUploadModal} className="flex-shrink-0 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
                         Subir Foto
                     </button>
                 </div>
@@ -97,8 +115,9 @@ const PhotoLog: React.FC = () => {
                 <div className="space-y-4">
                     <input type="file" accept="image/*" onChange={handleFileChange} className="w-full p-2 border rounded bg-white text-black file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100" />
                     {newPhoto.url && <img src={newPhoto.url} alt="Preview" className="max-h-48 rounded-md mx-auto" />}
-                    <input type="text" placeholder="Descripción" value={newPhoto.description || ''} onChange={e => setNewPhoto({...newPhoto, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="text" placeholder="Descripción" value={newPhoto.description || ''} onChange={e => {setNewPhoto({...newPhoto, description: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <input type="text" placeholder="Etiquetas (separadas por coma)" onChange={e => setNewPhoto({...newPhoto, tags: e.target.value.split(',').map(t=>t.trim())})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSavePhoto} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Foto</button>
                 </div>
             </Modal>

@@ -1,9 +1,11 @@
+
 import React, { useState, useMemo } from 'react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { initialClients, initialInteractions } from '../constants';
 import { Client, Interaction } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import { useProject } from '../contexts/ProjectContext';
 
 const CRM: React.FC = () => {
@@ -20,6 +22,9 @@ const CRM: React.FC = () => {
     const [isEditingClient, setIsEditingClient] = useState(false);
     
     const [currentInteraction, setCurrentInteraction] = useState<Partial<Interaction>>({});
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+    const [validationError, setValidationError] = useState<string>('');
+
 
     const stats = useMemo(() => ({
         total: clients.length,
@@ -29,6 +34,7 @@ const CRM: React.FC = () => {
     
     // Client Handlers
     const handleOpenClientModal = (client?: Client) => {
+        setValidationError('');
         if (client) {
             setCurrentClient(client);
             setIsEditingClient(true);
@@ -42,7 +48,7 @@ const CRM: React.FC = () => {
     const handleSaveClient = () => {
         // Simple validation
         if (!currentClient.name || !currentClient.primaryContactName) {
-            alert('El nombre del cliente y el nombre del contacto principal son obligatorios.');
+            setValidationError('El nombre del cliente y el nombre del contacto principal son obligatorios.');
             return;
         }
 
@@ -52,14 +58,23 @@ const CRM: React.FC = () => {
             setClients([...clients, { ...currentClient, id: `cli-${Date.now()}` } as Client]);
         }
         setIsClientModalOpen(false);
+        setValidationError('');
     };
 
-    const handleDeleteClient = (clientId: string) => {
+    const handleDeleteClientClick = (clientId: string) => {
         const client = clients.find(c => c.id === clientId);
-        if (client && window.confirm(`¿Estás seguro de que quieres eliminar a "${client.name}"? Esto también eliminará todas sus interacciones.`)) {
+        if (client) {
+            setDeleteConfirmation({ isOpen: true, id: clientId, name: client.name });
+        }
+    };
+
+    const confirmDeleteClient = () => {
+        const clientId = deleteConfirmation.id;
+        if (clientId) {
             setClients(clients.filter(c => c.id !== clientId));
             setInteractions(interactions.filter(i => i.clientId !== clientId));
         }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
     
     // Details & Interaction Handlers
@@ -69,6 +84,7 @@ const CRM: React.FC = () => {
     };
     
     const handleOpenInteractionModal = (clientId: string) => {
+        setValidationError('');
         setCurrentInteraction({ 
             clientId: clientId,
             date: new Date().toISOString().split('T')[0],
@@ -79,11 +95,12 @@ const CRM: React.FC = () => {
 
     const handleSaveInteraction = () => {
          if (!currentInteraction.clientId || !currentInteraction.summary) {
-            alert('El resumen de la interacción es obligatorio.');
+            setValidationError('El resumen de la interacción es obligatorio.');
             return;
         }
         setInteractions([...interactions, { ...currentInteraction, id: `int-${Date.now()}` } as Interaction]);
         setIsInteractionModalOpen(false);
+        setValidationError('');
     };
     
     const getStatusColor = (status: Client['status']) => {
@@ -139,7 +156,7 @@ const CRM: React.FC = () => {
                                     <td className="p-3 whitespace-nowrap">
                                         <button onClick={() => handleOpenDetailsModal(client)} className="text-blue-600 hover:text-blue-800 font-medium">Ver Detalles</button>
                                         <button onClick={() => handleOpenClientModal(client)} className="ml-4 text-black hover:text-gray-600 font-medium">Editar</button>
-                                        <button onClick={() => handleDeleteClient(client.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
+                                        <button onClick={() => handleDeleteClientClick(client.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
                                     </td>
                                 </tr>
                             ))}
@@ -151,7 +168,7 @@ const CRM: React.FC = () => {
             {/* Client Add/Edit Modal */}
             <Modal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} title={isEditingClient ? 'Editar Cliente' : 'Añadir Nuevo Cliente'}>
                 <div className="space-y-4">
-                    <input name="name" value={currentClient.name || ''} onChange={e => setCurrentClient({...currentClient, name: e.target.value})} placeholder="Nombre Cliente/Empresa" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input name="name" value={currentClient.name || ''} onChange={e => {setCurrentClient({...currentClient, name: e.target.value}); setValidationError('');}} placeholder="Nombre Cliente/Empresa" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <div className="grid grid-cols-2 gap-4">
                         <select name="type" value={currentClient.type || 'Empresa'} onChange={e => setCurrentClient({...currentClient, type: e.target.value as Client['type']})} className="w-full p-2 border rounded bg-white text-black">
                             <option>Empresa</option>
@@ -163,11 +180,12 @@ const CRM: React.FC = () => {
                             <option>Inactivo</option>
                         </select>
                     </div>
-                     <input name="primaryContactName" value={currentClient.primaryContactName || ''} onChange={e => setCurrentClient({...currentClient, primaryContactName: e.target.value})} placeholder="Nombre Contacto Principal" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                     <input name="primaryContactName" value={currentClient.primaryContactName || ''} onChange={e => {setCurrentClient({...currentClient, primaryContactName: e.target.value}); setValidationError('');}} placeholder="Nombre Contacto Principal" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                      <input name="primaryContactEmail" type="email" value={currentClient.primaryContactEmail || ''} onChange={e => setCurrentClient({...currentClient, primaryContactEmail: e.target.value})} placeholder="Email Contacto Principal" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                      <input name="primaryContactPhone" value={currentClient.primaryContactPhone || ''} onChange={e => setCurrentClient({...currentClient, primaryContactPhone: e.target.value})} placeholder="Teléfono Contacto Principal" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                      <input name="address" value={currentClient.address || ''} onChange={e => setCurrentClient({...currentClient, address: e.target.value})} placeholder="Dirección" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                      <textarea name="notes" value={currentClient.notes || ''} onChange={e => setCurrentClient({...currentClient, notes: e.target.value})} placeholder="Notas adicionales..." className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={3}></textarea>
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveClient} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Cliente</button>
                 </div>
             </Modal>
@@ -215,14 +233,25 @@ const CRM: React.FC = () => {
                         <option>Otro</option>
                     </select>
                     <input name="date" type="date" value={currentInteraction.date || ''} onChange={e => setCurrentInteraction({...currentInteraction, date: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
-                    <textarea name="summary" value={currentInteraction.summary || ''} onChange={e => setCurrentInteraction({...currentInteraction, summary: e.target.value})} placeholder="Resumen de la interacción..." className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={4}></textarea>
+                    <textarea name="summary" value={currentInteraction.summary || ''} onChange={e => {setCurrentInteraction({...currentInteraction, summary: e.target.value}); setValidationError('');}} placeholder="Resumen de la interacción..." className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={4}></textarea>
                     <div>
                         <label className="text-sm text-black">Fecha de Seguimiento (Opcional)</label>
                         <input name="followUpDate" type="date" value={currentInteraction.followUpDate || ''} onChange={e => setCurrentInteraction({...currentInteraction, followUpDate: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
                     </div>
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveInteraction} className="w-full py-2 bg-green-600 text-white rounded hover:bg-green-700">Guardar Interacción</button>
                  </div>
             </Modal>
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteClient}
+                title="Eliminar Cliente"
+                message={`¿Estás seguro de que quieres eliminar a "${deleteConfirmation.name}"? Esto también eliminará todas sus interacciones.`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
 
         </div>
     );

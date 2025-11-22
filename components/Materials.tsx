@@ -5,6 +5,7 @@ import { initialMaterials, initialMaterialOrders } from '../constants';
 import { Material, MaterialOrder } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import { GoogleGenAI, Type } from "@google/genai";
 import { useProject } from '../contexts/ProjectContext';
 
@@ -34,8 +35,11 @@ const Materials: React.FC = () => {
     const [selectedMaterialForSuppliers, setSelectedMaterialForSuppliers] = useState<Material | null>(null);
     
     const [notification, setNotification] = useState<string | null>(null);
+    const [validationError, setValidationError] = useState<string>('');
 
     const [sortOption, setSortOption] = useState<string>('default');
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+
 
     const sortedMaterials = useMemo(() => {
         const materialsCopy = [...materials];
@@ -71,6 +75,7 @@ const Materials: React.FC = () => {
 
 
     const handleOpenMaterialModal = (material?: Material) => {
+        setValidationError('');
         if (material) {
             setCurrentMaterial(material);
             setIsEditingMaterial(true);
@@ -92,9 +97,15 @@ const Materials: React.FC = () => {
     const handleCloseMaterialModal = () => {
         setIsMaterialModalOpen(false);
         setCurrentMaterial({});
+        setValidationError('');
     };
 
     const handleSaveMaterial = () => {
+        if (!currentMaterial.name || !currentMaterial.unit || currentMaterial.quantity === undefined || currentMaterial.unitCost === undefined) {
+            setValidationError('Por favor, complete los campos obligatorios: Nombre, Cantidad, Unidad y Costo.');
+            return;
+        }
+
         if (isEditingMaterial) {
             const originalMaterial = materials.find(m => m.id === currentMaterial.id);
             const updatedMaterial = currentMaterial as Material;
@@ -116,7 +127,7 @@ const Materials: React.FC = () => {
         handleCloseMaterialModal();
     };
 
-    const handleDeleteMaterial = (materialId: string) => {
+    const handleDeleteMaterialClick = (materialId: string) => {
         const materialToDelete = materials.find(m => m.id === materialId);
         if (!materialToDelete) return;
 
@@ -125,18 +136,24 @@ const Materials: React.FC = () => {
             alert('Este material no se puede eliminar porque está asociado a uno o más pedidos. Por favor, elimine o modifique los pedidos asociados primero.');
             return;
         }
+        setDeleteConfirmation({ isOpen: true, id: materialId, name: materialToDelete.name });
+    };
 
-        if (window.confirm(`¿Estás seguro de que quieres eliminar el material "${materialToDelete.name}"? Esta acción no se puede deshacer.`)) {
-            setMaterials(materials.filter(m => m.id !== materialId));
+    const confirmDeleteMaterial = () => {
+        if (deleteConfirmation.id) {
+            setMaterials(materials.filter(m => m.id !== deleteConfirmation.id));
         }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
 
     const handleMaterialChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setCurrentMaterial(prev => ({ ...prev, [name]: name === 'quantity' || name === 'unitCost' || name === 'criticalStockLevel' ? parseFloat(value) : value }));
+        if (validationError) setValidationError('');
     };
 
     const handleOpenOrderModal = (order?: MaterialOrder) => {
+        setValidationError('');
         if (order) {
             setCurrentOrder(order);
             setIsEditingOrder(true);
@@ -155,10 +172,14 @@ const Materials: React.FC = () => {
     const handleCloseOrderModal = () => {
         setIsOrderModalOpen(false);
         setCurrentOrder({});
+        setValidationError('');
     };
 
     const handleSaveOrder = () => {
-        if (!currentOrder.materialId || !currentOrder.quantity || !currentOrder.orderDate || !currentOrder.status) return;
+        if (!currentOrder.materialId || !currentOrder.quantity || !currentOrder.orderDate || !currentOrder.status) {
+            setValidationError('Todos los campos del pedido son obligatorios.');
+            return;
+        }
         if (isEditingOrder) {
             setOrders(orders.map(o => o.id === currentOrder.id ? currentOrder as MaterialOrder : o));
         } else {
@@ -171,6 +192,7 @@ const Materials: React.FC = () => {
     const handleOrderChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setCurrentOrder(prev => ({ ...prev, [name]: name === 'quantity' ? parseFloat(value) : value }));
+        if (validationError) setValidationError('');
     };
 
     const handleOrderStatusChange = (orderId: string, newStatus: MaterialOrder['status']) => {
@@ -302,7 +324,7 @@ const Materials: React.FC = () => {
                                         >
                                             Buscar Proveedores
                                         </button>
-                                        <button onClick={() => handleDeleteMaterial(material.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">
+                                        <button onClick={() => handleDeleteMaterialClick(material.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">
                                             Eliminar
                                         </button>
                                     </td>
@@ -369,13 +391,14 @@ const Materials: React.FC = () => {
 
             <Modal isOpen={isMaterialModalOpen} onClose={handleCloseMaterialModal} title={isEditingMaterial ? 'Editar Material' : 'Añadir Nuevo Material'}>
                 <div className="space-y-4">
-                    <input name="name" value={currentMaterial.name || ''} onChange={handleMaterialChange} placeholder="Nombre" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input name="name" value={currentMaterial.name || ''} onChange={handleMaterialChange} placeholder="Nombre *" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <input name="description" value={currentMaterial.description || ''} onChange={handleMaterialChange} placeholder="Descripción" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <input name="location" value={currentMaterial.location || ''} onChange={handleMaterialChange} placeholder="Ubicación (ej. Ciudad, Dirección)" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input name="quantity" type="number" value={currentMaterial.quantity ?? ''} onChange={handleMaterialChange} placeholder="Cantidad" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input name="unit" value={currentMaterial.unit || ''} onChange={handleMaterialChange} placeholder="Unidad (ej. sacos, m³)" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input name="unitCost" type="number" value={currentMaterial.unitCost ?? ''} onChange={handleMaterialChange} placeholder="Costo Unitario" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input name="quantity" type="number" value={currentMaterial.quantity ?? ''} onChange={handleMaterialChange} placeholder="Cantidad *" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input name="unit" value={currentMaterial.unit || ''} onChange={handleMaterialChange} placeholder="Unidad (ej. sacos, m³) *" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input name="unitCost" type="number" value={currentMaterial.unitCost ?? ''} onChange={handleMaterialChange} placeholder="Costo Unitario *" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <input name="criticalStockLevel" type="number" value={currentMaterial.criticalStockLevel ?? ''} onChange={handleMaterialChange} placeholder="Nivel Crítico de Stock" className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveMaterial} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar</button>
                 </div>
             </Modal>
@@ -394,6 +417,7 @@ const Materials: React.FC = () => {
                         <option value="Entregado">Entregado</option>
                         <option value="Cancelado">Cancelado</option>
                     </select>
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveOrder} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Pedido</button>
                 </div>
             </Modal>
@@ -426,6 +450,16 @@ const Materials: React.FC = () => {
                     </div>
                 )}
             </Modal>
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteMaterial}
+                title="Eliminar Material"
+                message={`¿Estás seguro de que quieres eliminar el material "${deleteConfirmation.name}"? Esta acción no se puede deshacer.`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
         </div>
     );
 };

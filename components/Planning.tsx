@@ -5,6 +5,7 @@ import { initialTasks, initialWorkers, initialPhotos } from '../constants';
 import { Task, Worker, Photo } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
+import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
 import { useProject } from '../contexts/ProjectContext';
 import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
@@ -473,8 +474,11 @@ const Planning: React.FC = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [isPhotoManagerOpen, setIsPhotoManagerOpen] = useState(false);
     const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+    const [validationError, setValidationError] = useState<string>('');
 
     const handleOpenModal = (task?: Task) => {
+        setValidationError('');
         if (task) {
             setCurrentTask({ ...task, photoIds: task.photoIds || [], dependsOn: task.dependsOn || [] });
             setIsEditing(true);
@@ -486,6 +490,10 @@ const Planning: React.FC = () => {
     };
 
     const handleSave = () => {
+        if (!currentTask.name || !currentTask.startDate || !currentTask.endDate) {
+            setValidationError('Nombre de tarea y fechas de inicio/fin son obligatorios.');
+            return;
+        }
         // --- Dependency Validation ---
         if (currentTask.dependsOn && currentTask.dependsOn.length > 0) {
             for (const depId of currentTask.dependsOn) {
@@ -493,13 +501,13 @@ const Planning: React.FC = () => {
                 if (dependencyTask) {
                     // 1. Date Validation: Task cannot start before its dependency ends.
                     if (currentTask.startDate && new Date(currentTask.startDate) < new Date(dependencyTask.endDate)) {
-                        alert(`Error de validación:\nLa tarea "${currentTask.name}" no puede comenzar antes de que finalice su dependencia "${dependencyTask.name}".\n\nFecha de fin de la dependencia: ${new Date(dependencyTask.endDate).toLocaleDateString()}\nFecha de inicio de la tarea actual: ${new Date(currentTask.startDate).toLocaleDateString()}`);
+                        setValidationError(`Conflicto de dependencia: La tarea no puede comenzar antes de que finalice "${dependencyTask.name}".`);
                         return; // Stop saving
                     }
 
                     // 2. Status Validation: Task cannot be 'In Progress' or 'Completed' if dependency is not 'Completed'.
                     if ((currentTask.status === 'En Progreso' || currentTask.status === 'Completado') && dependencyTask.status !== 'Completado') {
-                        alert(`Error de validación:\nLa tarea "${currentTask.name}" no puede estar 'En Progreso' o 'Completado' porque su dependencia "${dependencyTask.name}" aún no está completada.`);
+                         setValidationError(`Conflicto de dependencia: La tarea no puede avanzar porque "${dependencyTask.name}" aún no está completada.`);
                         return; // Stop saving
                     }
                 }
@@ -544,10 +552,19 @@ const Planning: React.FC = () => {
             setTasks([...tasks, { ...taskToSave, id: `tsk-${Date.now()}` } as Task]);
         }
         setIsModalOpen(false);
+        setValidationError('');
     };
 
-    const handleDelete = (taskId: string) => {
-        if (window.confirm('¿Estás seguro de que quieres eliminar esta tarea? También se eliminará como dependencia de otras tareas.')) {
+    const handleDeleteClick = (taskId: string) => {
+        const taskToDelete = tasks.find(t => t.id === taskId);
+        if (taskToDelete) {
+            setDeleteConfirmation({ isOpen: true, id: taskId, name: taskToDelete.name });
+        }
+    };
+
+    const confirmDeleteTask = () => {
+        const taskId = deleteConfirmation.id;
+        if (taskId) {
             setTasks(prevTasks => {
                 const newTasks = prevTasks.filter(t => t.id !== taskId);
                 // Remove the deleted task from other tasks' dependencies
@@ -559,6 +576,7 @@ const Planning: React.FC = () => {
                 });
             });
         }
+        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
     
     const getStatusColor = (status: Task['status']) => {
@@ -628,9 +646,9 @@ const Planning: React.FC = () => {
                                 </div>
                                 <div className="text-right flex-shrink-0 ml-4">
                                      <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task.status)}`}>{task.status}</span>
-                                    <p className="text-sm text-black mt-1">{new Date(task.startDate).toLocaleDateString()} - {new Date(task.endDate).toLocaleDateString()}</p>
+                                    <p className="text-sm text-black mt-1">{new Date(task.startDate).toLocaleDateString()}</p>
                                      <button onClick={() => handleOpenModal(task)} className="text-sm text-black hover:text-gray-600 mt-1">Editar</button>
-                                     <button onClick={() => handleDelete(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
+                                     <button onClick={() => handleDeleteClick(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
                                 </div>
                            </div>
                            <div className="mt-3">
@@ -681,17 +699,17 @@ const Planning: React.FC = () => {
 
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditing ? 'Editar Tarea' : 'Añadir Nueva Tarea'}>
                 <div className="space-y-4 max-h-[80vh] overflow-y-auto p-2">
-                    <input type="text" placeholder="Nombre de la Tarea" value={currentTask.name || ''} onChange={e => setCurrentTask({...currentTask, name: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                    <input type="text" placeholder="Nombre de la Tarea" value={currentTask.name || ''} onChange={e => {setCurrentTask({...currentTask, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <textarea placeholder="Descripción" value={currentTask.description || ''} onChange={e => setCurrentTask({...currentTask, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={2}></textarea>
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-black block text-sm font-medium">Fecha de Inicio</label>
-                            <input type="date" value={currentTask.startDate || ''} onChange={e => setCurrentTask({...currentTask, startDate: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
+                            <input type="date" value={currentTask.startDate || ''} onChange={e => {setCurrentTask({...currentTask, startDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
                         </div>
                         <div>
                             <label className="text-black block text-sm font-medium">Fecha de Fin</label>
-                            <input type="date" value={currentTask.endDate || ''} onChange={e => setCurrentTask({...currentTask, endDate: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
+                            <input type="date" value={currentTask.endDate || ''} onChange={e => {setCurrentTask({...currentTask, endDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
                         </div>
                     </div>
 
@@ -771,6 +789,8 @@ const Planning: React.FC = () => {
                              <button onClick={() => setIsPhotoManagerOpen(true)} className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors font-medium text-sm">Gestionar</button>
                         </div>
                     </div>
+                    
+                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
 
                     <button onClick={handleSave} className="w-full mt-2 py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Tarea</button>
                 </div>
@@ -805,6 +825,16 @@ const Planning: React.FC = () => {
                     <img src={viewingPhotoUrl} alt="Vista Previa" className="w-full max-h-[80vh] object-contain rounded-lg"/>
                  </Modal>
             )}
+
+            <ConfirmModal
+                isOpen={deleteConfirmation.isOpen}
+                onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
+                onConfirm={confirmDeleteTask}
+                title="Eliminar Tarea"
+                message={`¿Estás seguro de que quieres eliminar la tarea "${deleteConfirmation.name}"? También se eliminará como dependencia de otras tareas.`}
+                confirmText="Eliminar"
+                isDangerous={true}
+            />
         </div>
     );
 };
