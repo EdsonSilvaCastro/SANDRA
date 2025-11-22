@@ -12,12 +12,12 @@ import CRM from './components/CRM';
 import { ProjectProvider, useProject } from './contexts/ProjectContext';
 import ProjectHeader from './components/ProjectHeader';
 import LoginScreen from './components/LoginScreen';
-import CMS from './components/CMS';
 import AuthScreen from './components/AuthScreen';
+import UserManagement from './components/UserManagement';
 import { User } from './types';
 import useLocalStorage from './hooks/useLocalStorage';
 
-export type View = 'Panel' | 'Materiales' | 'Mano de Obra' | 'Presupuesto' | 'Planificación' | 'Bitácora de Fotos' | 'Reportes' | 'CRM / Clientes' | 'CMS';
+export type View = 'Panel' | 'Materiales' | 'Mano de Obra' | 'Presupuesto' | 'Planificación' | 'Bitácora de Fotos' | 'Reportes' | 'CRM / Clientes' | 'Usuarios';
 
 const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -74,13 +74,20 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
                         <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-16 w-16 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 4h5m-5 4h5" /></svg>
                         <h2 className="mt-4 text-3xl font-bold text-black">Bienvenido, {currentUser.name}.</h2>
                         <p className="mt-2 text-lg text-black">Parece que es tu primera vez aquí. No tienes proyectos todavía.</p>
-                        <p className="mt-1 text-black">¡Crea uno para empezar a gestionar tu obra!</p>
-                        <button 
-                            onClick={() => setIsManageModalOpen(true)}
-                            className="mt-6 px-6 py-3 bg-primary-600 text-white font-semibold rounded-lg shadow-md hover:bg-primary-700 transition-colors text-lg"
-                        >
-                            Crear tu Primer Proyecto
-                        </button>
+                        {currentUser.role !== 'viewer' && (
+                            <>
+                                <p className="mt-1 text-black">¡Crea uno para empezar a gestionar tu obra!</p>
+                                <button 
+                                    onClick={() => setIsManageModalOpen(true)}
+                                    className="mt-6 px-6 py-3 bg-primary-600 text-white font-semibold rounded-lg shadow-md hover:bg-primary-700 transition-colors text-lg"
+                                >
+                                    Crear tu Primer Proyecto
+                                </button>
+                            </>
+                        )}
+                        {currentUser.role === 'viewer' && (
+                            <p className="mt-1 text-gray-600">Actualmente no tienes proyectos asignados para visualizar. Contacta a tu administrador.</p>
+                        )}
                     </div>
                 </main>
             </div>
@@ -105,7 +112,7 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
   }
 
   const renderView = () => {
-    const isAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@constructpro.com';
+    const isAdmin = currentUser.role === 'admin';
 
     switch (currentView) {
       case 'Panel':
@@ -124,8 +131,8 @@ const AppContent: React.FC<AppContentProps> = ({ onLogout, currentUser }) => {
         return <Reports />;
       case 'CRM / Clientes':
         return isAdmin ? <CRM /> : <Dashboard />;
-      case 'CMS':
-        return <CMS />;
+      case 'Usuarios':
+        return isAdmin ? <UserManagement /> : <Dashboard />;
       default:
         return <Dashboard />;
     }

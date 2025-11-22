@@ -1,7 +1,5 @@
 
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialTasks, initialWorkers, initialPhotos } from '../constants';
 import { Task, Worker, Photo } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
@@ -17,14 +15,14 @@ type TimeScale = 'day' | 'week' | 'month';
 
 const GanttChart: React.FC<{ 
     tasks: Task[]; 
-    setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
-}> = ({ tasks, setTasks }) => {
+    onUpdateTask: (task: Task) => void;
+    canEdit: boolean;
+}> = ({ tasks, onUpdateTask, canEdit }) => {
     const ganttContainerRef = useRef<HTMLDivElement>(null);
     const [timeScale, setTimeScale] = useState<TimeScale>('day');
     const [taskPositions, setTaskPositions] = useState<Record<string, { top: number, height: number }>>({});
     const [isDownloading, setIsDownloading] = useState(false);
     
-    // State for drag and drop functionality
     const [dragInfo, setDragInfo] = useState<{
         task: Task;
         action: 'move' | 'resize-end' | 'resize-start';
@@ -110,28 +108,12 @@ const GanttChart: React.FC<{
             status: task.status
         };
     }), [sortedTasks, projectStartDate, getTaskProgress]);
-
-    const CustomTooltip = ({ active, payload, label }: any) => {
-        if (active && payload && payload.length) {
-            const data = payload[0].payload;
-            return (
-                <div className="bg-white p-2 border shadow-lg rounded text-sm text-black">
-                    <p className="font-bold">{label}</p>
-                    <p>Inicio: {data.startDate}</p>
-                    <p>Fin: {data.endDate}</p>
-                    <p>Estado: {data.status}</p>
-                </div>
-            );
-        }
-        return null;
-    };
     
     const tickFormatter = useCallback((tick: number) => {
         const date = new Date(projectStartDate + tick);
         return format(date, 'd MMM', { locale: es });
     }, [projectStartDate]);
 
-    // Update dependency line positions
     useEffect(() => {
         if (!ganttContainerRef.current) return;
         const newPositions: Record<string, { top: number, height: number }> = {};
@@ -172,6 +154,7 @@ const GanttChart: React.FC<{
     };
 
     const handleMouseDown = (e: React.MouseEvent, task: Task, action: 'move' | 'resize-end' | 'resize-start') => {
+        if (!canEdit) return;
         e.preventDefault();
         e.stopPropagation();
         document.body.style.cursor = action === 'move' ? 'move' : 'ew-resize';
@@ -212,7 +195,6 @@ const GanttChart: React.FC<{
             text: `${format(newStartDate, formatStr)} - ${format(newEndDate, formatStr)}`
         });
 
-        // Visually update the dragged task bar in real-time
         const taskBar = ganttContainerRef.current?.querySelector(`[data-bar-id="${dragInfo.task.id}"]`) as HTMLElement;
         if (taskBar) {
             taskBar.style.left = `${dateToPixel(newStartDate)}px`;
@@ -248,7 +230,6 @@ const GanttChart: React.FC<{
                 const depTask = tasks.find(t => t.id === depId);
                 if (depTask && newStartDate < new Date(depTask.endDate)) {
                     alert(`Conflicto de dependencia: La tarea "${dragInfo.task.name}" no puede empezar antes de que termine "${depTask.name}".`);
-                    // Reset visual position
                     const taskBar = ganttContainerRef.current?.querySelector(`[data-bar-id="${dragInfo.task.id}"]`) as HTMLElement;
                     if (taskBar) {
                         taskBar.style.left = `${dateToPixel(dragInfo.initialStartDate)}px`;
@@ -264,7 +245,6 @@ const GanttChart: React.FC<{
         for (const depTask of dependentTasks) {
             if (new Date(depTask.startDate) < newEndDate) {
                 alert(`Conflicto de dependencia: La tarea "${depTask.name}" (que depende de esta) empezaría antes de que esta termine.`);
-                 // Reset visual position
                  const taskBar = ganttContainerRef.current?.querySelector(`[data-bar-id="${dragInfo.task.id}"]`) as HTMLElement;
                  if (taskBar) {
                      taskBar.style.left = `${dateToPixel(dragInfo.initialStartDate)}px`;
@@ -275,7 +255,6 @@ const GanttChart: React.FC<{
                 return;
             }
         }
-        // --- End Validation ---
 
         const updatedTask = { 
             ...dragInfo.task, 
@@ -283,10 +262,10 @@ const GanttChart: React.FC<{
             endDate: format(newEndDate, 'yyyy-MM-dd') 
         };
 
-        setTasks(currentTasks => currentTasks.map(t => t.id === updatedTask.id ? updatedTask : t));
+        onUpdateTask(updatedTask);
         setDragInfo(null);
         setTooltip(null);
-    }, [dragInfo, setTasks, tasks, dateToPixel, columnWidth, timeScale]);
+    }, [dragInfo, onUpdateTask, tasks, dateToPixel, columnWidth, timeScale]);
 
     useEffect(() => {
         if (dragInfo) {
@@ -323,12 +302,7 @@ const GanttChart: React.FC<{
                         disabled={isDownloading}
                         className="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center gap-1"
                     >
-                        {isDownloading ? '...' : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                        )}
-                        <span className="hidden sm:inline">{isDownloading ? 'Descargando' : 'Descargar'}</span>
+                        {isDownloading ? '...' : 'Descargar'}
                     </button>
                     <div className="flex gap-1 p-1 bg-gray-200 rounded-md">
                         {(['day', 'week', 'month'] as TimeScale[]).map(scale => (
@@ -341,7 +315,6 @@ const GanttChart: React.FC<{
             </div>
             <div id="gantt-chart-view" className="overflow-x-auto border rounded-lg bg-white" ref={ganttContainerRef}>
                 <div className="relative" style={{ width: gridDates.length * columnWidth + 150 }}>
-                    {/* Header */}
                     <div className="flex sticky top-0 z-20 bg-gray-50">
                         <div className="w-[150px] flex-shrink-0 border-r border-b p-2 font-semibold text-sm text-black sticky left-0 bg-gray-50">Tarea</div>
                         {gridDates.map((date, i) => (
@@ -350,14 +323,12 @@ const GanttChart: React.FC<{
                             </div>
                         ))}
                     </div>
-                    {/* Task Rows */}
                     <div className="relative">
                         {sortedTasks.map((task, index) => (
                              <div key={task.id} data-task-id={task.id} className="gantt-task-row flex items-center border-b" style={{ height: 40 }}>
                                 <div className="w-[150px] flex-shrink-0 p-2 text-sm font-medium truncate text-black sticky left-0 bg-white border-r z-10 h-full flex items-center">{task.name}</div>
                              </div>
                         ))}
-                        {/* Task Bars */}
                         {sortedTasks.map((task, index) => {
                             const startPixel = dateToPixel(new Date(task.startDate));
                             const endPixel = dateToPixel(new Date(task.endDate));
@@ -371,33 +342,33 @@ const GanttChart: React.FC<{
                                 <div
                                     key={task.id}
                                     data-bar-id={task.id}
-                                    className="absolute h-8 top-0 rounded-md group flex items-center"
+                                    className={`absolute h-8 top-0 rounded-md group flex items-center ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
                                     style={{ top: index * 40 + 6, left: 150 + startPixel, width }}
-                                    onMouseDown={(e) => handleMouseDown(e, task, 'move')}
+                                    onMouseDown={(e) => canEdit && handleMouseDown(e, task, 'move')}
                                 >
                                     <div className={`absolute left-0 top-0 h-full rounded-md ${statusColor} opacity-70 w-full`}></div>
                                     <div className={`absolute left-0 top-0 h-full rounded-md ${statusColor}`} style={{ width: `${progress}%` }}></div>
                                     <span className="relative text-white text-xs px-2 truncate z-10 pointer-events-none">{task.name}</span>
-                                    
-                                    {/* Resize Handles */}
-                                    <div 
-                                        className="absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20" 
-                                        onMouseDown={(e) => handleMouseDown(e, task, 'resize-start')}
-                                    />
-                                    <div 
-                                        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20"
-                                        onMouseDown={(e) => handleMouseDown(e, task, 'resize-end')}
-                                    />
+                                    {canEdit && (
+                                        <>
+                                            <div 
+                                                className="absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20" 
+                                                onMouseDown={(e) => handleMouseDown(e, task, 'resize-start')}
+                                            />
+                                            <div 
+                                                className="absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20"
+                                                onMouseDown={(e) => handleMouseDown(e, task, 'resize-end')}
+                                            />
+                                        </>
+                                    )}
                                 </div>
                             );
                         })}
-                        {/* Today Marker */}
                         {todayOffset > 0 && today > overallStartDate && today < overallEndDate && (
                             <div className="absolute top-0 bottom-0 border-r-2 border-red-500 z-20 pointer-events-none" style={{ left: 150 + todayOffset }}>
                                 <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-1 rounded-sm">Hoy</div>
                             </div>
                         )}
-                        {/* Dependency Lines */}
                         <svg className="absolute top-0 left-[150px] w-full h-full pointer-events-none z-10">
                             <defs>
                                 <marker id="arrowhead" markerWidth="5" markerHeight="3.5" refX="4.5" refY="1.75" orient="auto">
@@ -426,7 +397,6 @@ const GanttChart: React.FC<{
                                 });
                             })}
                         </svg>
-                        {/* Recharts Chart for Axes and Grid */}
                         <div className="absolute top-0 left-[150px] w-full h-full pointer-events-none">
                              <ResponsiveContainer>
                                 <BarChart
@@ -445,7 +415,6 @@ const GanttChart: React.FC<{
                                         xAxisId="gantt-axis"
                                         orientation="top"
                                     />
-                                    {/* Y-axis is handled by the manual task list */}
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -463,11 +432,12 @@ const GanttChart: React.FC<{
 
 
 const Planning: React.FC = () => {
-    const { activeProjectId } = useProject();
+    const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
+    const canEdit = currentUser.role !== 'viewer';
 
-    const [tasks, setTasks] = useLocalStorage<Task[]>(`constructpro_project_${activeProjectId}_tasks`, initialTasks);
-    const [workers] = useLocalStorage<Worker[]>(`constructpro_project_${activeProjectId}_workers`, initialWorkers);
-    const [photos] = useLocalStorage<Photo[]>(`constructpro_project_${activeProjectId}_photos`, initialPhotos);
+    const tasks = projectData.tasks;
+    const workers = projectData.workers;
+    const photos = projectData.photos;
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentTask, setCurrentTask] = useState<Partial<Task>>({});
@@ -478,6 +448,7 @@ const Planning: React.FC = () => {
     const [validationError, setValidationError] = useState<string>('');
 
     const handleOpenModal = (task?: Task) => {
+        if (!canEdit) return;
         setValidationError('');
         if (task) {
             setCurrentTask({ ...task, photoIds: task.photoIds || [], dependsOn: task.dependsOn || [] });
@@ -489,92 +460,75 @@ const Planning: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
+        if (!canEdit) return;
         if (!currentTask.name || !currentTask.startDate || !currentTask.endDate) {
             setValidationError('Nombre de tarea y fechas de inicio/fin son obligatorios.');
             return;
         }
-        // --- Dependency Validation ---
         if (currentTask.dependsOn && currentTask.dependsOn.length > 0) {
             for (const depId of currentTask.dependsOn) {
                 const dependencyTask = tasks.find(t => t.id === depId);
                 if (dependencyTask) {
-                    // 1. Date Validation: Task cannot start before its dependency ends.
                     if (currentTask.startDate && new Date(currentTask.startDate) < new Date(dependencyTask.endDate)) {
                         setValidationError(`Conflicto de dependencia: La tarea no puede comenzar antes de que finalice "${dependencyTask.name}".`);
-                        return; // Stop saving
+                        return; 
                     }
-
-                    // 2. Status Validation: Task cannot be 'In Progress' or 'Completed' if dependency is not 'Completed'.
                     if ((currentTask.status === 'En Progreso' || currentTask.status === 'Completado') && dependencyTask.status !== 'Completado') {
                          setValidationError(`Conflicto de dependencia: La tarea no puede avanzar porque "${dependencyTask.name}" aún no está completada.`);
-                        return; // Stop saving
+                        return; 
                     }
                 }
             }
         }
-        // --- End of Validation ---
 
         const taskToSave: Partial<Task> = { ...currentTask };
     
-        // Automatic status update based on progress volume
         if (typeof taskToSave.totalVolume === 'number' && taskToSave.totalVolume > 0) {
             const completedVolume = taskToSave.completedVolume || 0;
             const totalVolume = taskToSave.totalVolume;
     
             if (completedVolume >= totalVolume) {
-                // If volume indicates completion, set status accordingly
                 if (taskToSave.status !== 'Completado') {
                     taskToSave.status = 'Completado';
                 }
             } else if (completedVolume > 0) {
-                // If there's some progress, ensure it's 'En Progreso'
                 if (taskToSave.status === 'No Iniciado' || taskToSave.status === 'Completado') {
                     taskToSave.status = 'En Progreso';
                 }
             }
         }
         
-        // Centralized logic for handling completionDate based on the final status
         if (taskToSave.status === 'Completado') {
-            // If the task is being marked as complete, set the completion date if it doesn't have one.
             if (!taskToSave.completionDate) {
                 taskToSave.completionDate = new Date().toISOString().split('T')[0];
             }
         } else {
-            // If the task is not complete, ensure the completion date is cleared.
             taskToSave.completionDate = undefined;
         }
     
-        if (isEditing) {
-            setTasks(tasks.map(t => t.id === taskToSave.id ? taskToSave as Task : t));
+        if (isEditing && taskToSave.id) {
+            await updateItem('tasks', taskToSave.id, taskToSave);
         } else {
-            setTasks([...tasks, { ...taskToSave, id: `tsk-${Date.now()}` } as Task]);
+            await addItem('tasks', { ...taskToSave, id: `tsk-${Date.now()}` });
         }
         setIsModalOpen(false);
         setValidationError('');
     };
 
     const handleDeleteClick = (taskId: string) => {
+        if (!canEdit) return;
         const taskToDelete = tasks.find(t => t.id === taskId);
         if (taskToDelete) {
             setDeleteConfirmation({ isOpen: true, id: taskId, name: taskToDelete.name });
         }
     };
 
-    const confirmDeleteTask = () => {
+    const confirmDeleteTask = async () => {
+        if (!canEdit) return;
         const taskId = deleteConfirmation.id;
         if (taskId) {
-            setTasks(prevTasks => {
-                const newTasks = prevTasks.filter(t => t.id !== taskId);
-                // Remove the deleted task from other tasks' dependencies
-                return newTasks.map(t => {
-                    if (t.dependsOn?.includes(taskId)) {
-                        return { ...t, dependsOn: t.dependsOn.filter(depId => depId !== taskId) };
-                    }
-                    return t;
-                });
-            });
+            await deleteItem('tasks', taskId);
         }
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
@@ -598,6 +552,7 @@ const Planning: React.FC = () => {
     };
 
     const handlePhotoSelection = (photoId: string) => {
+        if (!canEdit) return;
         setCurrentTask(prev => {
             const currentPhotoIds = prev.photoIds || [];
             if (currentPhotoIds.includes(photoId)) {
@@ -613,14 +568,16 @@ const Planning: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Planificación del Proyecto</h2>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                        Añadir Tarea
-                    </button>
+                    {canEdit && (
+                        <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                            Añadir Tarea
+                        </button>
+                    )}
                 </div>
             </div>
             
             <div className="mb-6">
-                <GanttChart tasks={tasks} setTasks={setTasks} />
+                <GanttChart tasks={tasks} onUpdateTask={(t) => updateItem('tasks', t.id, t)} canEdit={canEdit} />
             </div>
 
             <Card title="Lista de Tareas">
@@ -647,8 +604,12 @@ const Planning: React.FC = () => {
                                 <div className="text-right flex-shrink-0 ml-4">
                                      <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task.status)}`}>{task.status}</span>
                                     <p className="text-sm text-black mt-1">{new Date(task.startDate).toLocaleDateString()}</p>
-                                     <button onClick={() => handleOpenModal(task)} className="text-sm text-black hover:text-gray-600 mt-1">Editar</button>
-                                     <button onClick={() => handleDeleteClick(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
+                                     {canEdit && (
+                                        <>
+                                            <button onClick={() => handleOpenModal(task)} className="text-sm text-black hover:text-gray-600 mt-1">Editar</button>
+                                            <button onClick={() => handleDeleteClick(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
+                                        </>
+                                     )}
                                 </div>
                            </div>
                            <div className="mt-3">

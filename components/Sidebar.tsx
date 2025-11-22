@@ -11,13 +11,14 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, currentUser }) => {
-  const allNavItems: View[] = ['Panel', 'Materiales', 'Mano de Obra', 'Presupuesto', 'Planificación', 'Bitácora de Fotos', 'CRM / Clientes', 'Reportes', 'CMS'];
+  const allNavItems: View[] = ['Panel', 'Materiales', 'Mano de Obra', 'Presupuesto', 'Planificación', 'Bitácora de Fotos', 'CRM / Clientes', 'Reportes', 'Usuarios'];
 
   // Check if user is admin (by role or by email for backward compatibility)
   const isAdmin = currentUser.role === 'admin' || currentUser.email === 'admin@constructpro.com';
 
   const navItems = allNavItems.filter(item => {
       if (item === 'CRM / Clientes') return isAdmin;
+      if (item === 'Usuarios') return isAdmin;
       return true;
   });
 
@@ -44,6 +45,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, currentU
           </a>
         ))}
       </nav>
+      <div className="p-4 border-t">
+          <div className="text-xs text-gray-500 text-center">
+              Rol: {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'user' ? 'Editor' : 'Visualizador'}
+          </div>
+      </div>
     </div>
   );
 };

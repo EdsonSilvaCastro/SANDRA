@@ -2,19 +2,16 @@
 import React from 'react';
 import Card from './ui/Card';
 import ProgressBar from './ui/ProgressBar';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialBudgetCategories, initialExpenses, initialTasks, initialMaterials } from '../constants';
-import { BudgetCategory, Expense, Task, Material } from '../types';
 import { useProject } from '../contexts/ProjectContext';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 
 const Dashboard: React.FC = () => {
-  const { activeProjectId } = useProject();
+  const { projectData } = useProject();
   
-  const [tasks] = useLocalStorage<Task[]>(`constructpro_project_${activeProjectId}_tasks`, initialTasks);
-  const [materials] = useLocalStorage<Material[]>(`constructpro_project_${activeProjectId}_materials`, initialMaterials);
-  const [budgetCategories] = useLocalStorage<BudgetCategory[]>(`constructpro_project_${activeProjectId}_budgetCategories`, initialBudgetCategories);
-  const [expenses] = useLocalStorage<Expense[]>(`constructpro_project_${activeProjectId}_expenses`, initialExpenses);
+  const tasks = projectData.tasks;
+  const materials = projectData.materials;
+  const budgetCategories = projectData.budgetCategories;
+  const expenses = projectData.expenses;
 
   const totalBudget = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
   const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
@@ -78,8 +75,6 @@ const Dashboard: React.FC = () => {
       'Completado': '#22c55e',
   };
   
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
-
   return (
     <div>
       <h2 className="text-3xl font-semibold text-black mb-6">Panel del Proyecto</h2>

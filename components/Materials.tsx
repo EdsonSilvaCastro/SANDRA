@@ -1,7 +1,5 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialMaterials, initialMaterialOrders } from '../constants';
 import { Material, MaterialOrder } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
@@ -15,10 +13,11 @@ interface Supplier {
 }
 
 const Materials: React.FC = () => {
-    const { activeProjectId } = useProject();
+    const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
+    const canEdit = currentUser.role !== 'viewer';
 
-    const [materials, setMaterials] = useLocalStorage<Material[]>(`constructpro_project_${activeProjectId}_materials`, initialMaterials);
-    const [orders, setOrders] = useLocalStorage<MaterialOrder[]>(`constructpro_project_${activeProjectId}_materialOrders`, initialMaterialOrders);
+    const materials = projectData.materials;
+    const orders = projectData.materialOrders;
     
     const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
     const [currentMaterial, setCurrentMaterial] = useState<Partial<Material>>({});
@@ -39,7 +38,6 @@ const Materials: React.FC = () => {
 
     const [sortOption, setSortOption] = useState<string>('default');
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
-
 
     const sortedMaterials = useMemo(() => {
         const materialsCopy = [...materials];
@@ -68,13 +66,13 @@ const Materials: React.FC = () => {
         if (notification) {
             const timer = setTimeout(() => {
                 setNotification(null);
-            }, 5000); // Ocultar después de 5 segundos
+            }, 5000);
             return () => clearTimeout(timer);
         }
     }, [notification]);
 
-
     const handleOpenMaterialModal = (material?: Material) => {
+        if (!canEdit) return;
         setValidationError('');
         if (material) {
             setCurrentMaterial(material);
@@ -100,26 +98,26 @@ const Materials: React.FC = () => {
         setValidationError('');
     };
 
-    const handleSaveMaterial = () => {
+    const handleSaveMaterial = async () => {
+        if (!canEdit) return;
         if (!currentMaterial.name || !currentMaterial.unit || currentMaterial.quantity === undefined || currentMaterial.unitCost === undefined) {
             setValidationError('Por favor, complete los campos obligatorios: Nombre, Cantidad, Unidad y Costo.');
             return;
         }
 
-        if (isEditingMaterial) {
+        if (isEditingMaterial && currentMaterial.id) {
             const originalMaterial = materials.find(m => m.id === currentMaterial.id);
             const updatedMaterial = currentMaterial as Material;
             
-            setMaterials(materials.map(m => m.id === updatedMaterial.id ? updatedMaterial : m));
+            await updateItem('materials', currentMaterial.id, currentMaterial);
 
-            // Notificar solo si la cantidad cruza el umbral crítico hacia abajo
             if (originalMaterial && updatedMaterial.quantity <= updatedMaterial.criticalStockLevel && originalMaterial.quantity > originalMaterial.criticalStockLevel) {
                 setNotification(`¡Advertencia! El stock de "${updatedMaterial.name}" ha caído por debajo del nivel crítico de ${updatedMaterial.criticalStockLevel} ${updatedMaterial.unit}.`);
             }
         } else {
             const newMaterial = { ...currentMaterial, id: `mat-${Date.now()}` } as Material;
-            setMaterials([...materials, newMaterial]);
-             // Notificar si el nuevo material ya está por debajo del nivel crítico
+            await addItem('materials', newMaterial);
+            
             if (newMaterial.quantity <= newMaterial.criticalStockLevel) {
                  setNotification(`¡Advertencia! El nuevo material "${newMaterial.name}" fue añadido con stock por debajo del nivel crítico.`);
             }
@@ -128,6 +126,7 @@ const Materials: React.FC = () => {
     };
 
     const handleDeleteMaterialClick = (materialId: string) => {
+        if (!canEdit) return;
         const materialToDelete = materials.find(m => m.id === materialId);
         if (!materialToDelete) return;
 
@@ -139,9 +138,9 @@ const Materials: React.FC = () => {
         setDeleteConfirmation({ isOpen: true, id: materialId, name: materialToDelete.name });
     };
 
-    const confirmDeleteMaterial = () => {
+    const confirmDeleteMaterial = async () => {
         if (deleteConfirmation.id) {
-            setMaterials(materials.filter(m => m.id !== deleteConfirmation.id));
+            await deleteItem('materials', deleteConfirmation.id);
         }
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
@@ -153,6 +152,7 @@ const Materials: React.FC = () => {
     };
 
     const handleOpenOrderModal = (order?: MaterialOrder) => {
+        if (!canEdit) return;
         setValidationError('');
         if (order) {
             setCurrentOrder(order);
@@ -175,16 +175,17 @@ const Materials: React.FC = () => {
         setValidationError('');
     };
 
-    const handleSaveOrder = () => {
+    const handleSaveOrder = async () => {
+        if (!canEdit) return;
         if (!currentOrder.materialId || !currentOrder.quantity || !currentOrder.orderDate || !currentOrder.status) {
             setValidationError('Todos los campos del pedido son obligatorios.');
             return;
         }
-        if (isEditingOrder) {
-            setOrders(orders.map(o => o.id === currentOrder.id ? currentOrder as MaterialOrder : o));
+        if (isEditingOrder && currentOrder.id) {
+            await updateItem('materialOrders', currentOrder.id, currentOrder);
         } else {
             const newOrder = { ...currentOrder, id: `ord-${Date.now()}` } as MaterialOrder;
-            setOrders([...orders, newOrder]);
+            await addItem('materialOrders', newOrder);
         }
         handleCloseOrderModal();
     };
@@ -195,8 +196,9 @@ const Materials: React.FC = () => {
         if (validationError) setValidationError('');
     };
 
-    const handleOrderStatusChange = (orderId: string, newStatus: MaterialOrder['status']) => {
-        setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    const handleOrderStatusChange = async (orderId: string, newStatus: MaterialOrder['status']) => {
+        if (!canEdit) return;
+        await updateItem('materialOrders', orderId, { status: newStatus });
     };
 
     const handleFindSuppliers = async (material: Material) => {
@@ -266,9 +268,11 @@ const Materials: React.FC = () => {
             )}
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Inventario de Materiales</h2>
-                <button onClick={() => handleOpenMaterialModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                    Añadir Material
-                </button>
+                {canEdit && (
+                    <button onClick={() => handleOpenMaterialModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                        Añadir Material
+                    </button>
+                )}
             </div>
 
             <div className="mb-4 flex justify-end">
@@ -315,18 +319,24 @@ const Materials: React.FC = () => {
                                         }
                                     </td>
                                     <td className="p-3 whitespace-nowrap">
-                                        <button onClick={() => handleOpenMaterialModal(material)} className="text-black hover:text-gray-600 font-medium">Editar</button>
+                                        {canEdit && (
+                                            <>
+                                                <button onClick={() => handleOpenMaterialModal(material)} className="text-black hover:text-gray-600 font-medium">Editar</button>
+                                            </>
+                                        )}
                                         <button 
                                             onClick={() => handleFindSuppliers(material)} 
-                                            className="ml-4 text-primary-600 hover:text-primary-800 font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+                                            className={`ml-4 text-primary-600 hover:text-primary-800 font-medium disabled:text-gray-400 disabled:cursor-not-allowed ${!canEdit ? 'ml-0' : ''}`}
                                             disabled={!material.location}
                                             title={!material.location ? "Añadir ubicación para buscar proveedores" : "Buscar proveedores cercanos"}
                                         >
                                             Buscar Proveedores
                                         </button>
-                                        <button onClick={() => handleDeleteMaterialClick(material.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">
-                                            Eliminar
-                                        </button>
+                                        {canEdit && (
+                                            <button onClick={() => handleDeleteMaterialClick(material.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">
+                                                Eliminar
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -338,9 +348,11 @@ const Materials: React.FC = () => {
             <div className="mt-8">
                 <div className="flex justify-between items-center mb-4">
                      <h3 className="text-2xl font-semibold text-black">Pedidos de Materiales</h3>
-                     <button onClick={() => handleOpenOrderModal()} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
-                        Añadir Pedido
-                    </button>
+                     {canEdit && (
+                        <button onClick={() => handleOpenOrderModal()} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                            Añadir Pedido
+                        </button>
+                     )}
                 </div>
                  <Card>
                     <table className="w-full text-left">
@@ -365,12 +377,13 @@ const Materials: React.FC = () => {
                                             <select
                                                 value={order.status}
                                                 onChange={(e) => handleOrderStatusChange(order.id, e.target.value as MaterialOrder['status'])}
+                                                disabled={!canEdit}
                                                 className={`px-2 py-1 text-xs font-semibold rounded-full border-0 focus:ring-0 appearance-none cursor-pointer ${
                                                     order.status === 'Entregado' ? 'bg-green-500 text-white' :
                                                     order.status === 'Enviado' ? 'bg-blue-500 text-white' :
                                                     order.status === 'Pendiente' ? 'bg-yellow-400 text-black' :
                                                     order.status === 'Cancelado' ? 'bg-gray-500 text-white' : ''
-                                                }`}
+                                                } ${!canEdit ? 'opacity-80 cursor-not-allowed' : ''}`}
                                             >
                                                 <option value="Pendiente">Pendiente</option>
                                                 <option value="Enviado">Enviado</option>
@@ -379,7 +392,9 @@ const Materials: React.FC = () => {
                                             </select>
                                         </td>
                                         <td className="p-3">
-                                            <button onClick={() => handleOpenOrderModal(order)} className="text-black hover:text-gray-600 font-medium">Editar</button>
+                                            {canEdit ? (
+                                                <button onClick={() => handleOpenOrderModal(order)} className="text-black hover:text-gray-600 font-medium">Editar</button>
+                                            ) : <span className="text-gray-400 text-sm">Solo lectura</span>}
                                         </td>
                                     </tr>
                                 );

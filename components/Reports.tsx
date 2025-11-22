@@ -1,7 +1,6 @@
+
 import React, { useState } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialMaterials, initialMaterialOrders, initialWorkers, initialTasks, initialTimeLogs, initialBudgetCategories, initialExpenses, initialPhotos } from '../constants';
-import { Material, MaterialOrder, Worker, Task, TimeLog, BudgetCategory, Expense, Photo } from '../types';
+import { Task } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import { useProject } from '../contexts/ProjectContext';
@@ -9,19 +8,18 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 
 const Reports: React.FC = () => {
-    const { activeProjectId } = useProject();
+    const { projectData } = useProject();
     const [reportType, setReportType] = useState<string | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
 
-    // Cargar todos los datos necesarios desde el almacenamiento local para el proyecto activo
-    const [materials] = useLocalStorage<Material[]>(`constructpro_project_${activeProjectId}_materials`, initialMaterials);
-    const [orders] = useLocalStorage<MaterialOrder[]>(`constructpro_project_${activeProjectId}_materialOrders`, initialMaterialOrders);
-    const [workers] = useLocalStorage<Worker[]>(`constructpro_project_${activeProjectId}_workers`, initialWorkers);
-    const [tasks] = useLocalStorage<Task[]>(`constructpro_project_${activeProjectId}_tasks`, initialTasks);
-    const [timeLogs] = useLocalStorage<TimeLog[]>(`constructpro_project_${activeProjectId}_timeLogs`, initialTimeLogs);
-    const [budgetCategories] = useLocalStorage<BudgetCategory[]>(`constructpro_project_${activeProjectId}_budgetCategories`, initialBudgetCategories);
-    const [expenses] = useLocalStorage<Expense[]>(`constructpro_project_${activeProjectId}_expenses`, initialExpenses);
-    const [photos] = useLocalStorage<Photo[]>(`constructpro_project_${activeProjectId}_photos`, initialPhotos);
+    const materials = projectData.materials;
+    const orders = projectData.materialOrders;
+    const workers = projectData.workers;
+    const tasks = projectData.tasks;
+    const timeLogs = projectData.timeLogs;
+    const budgetCategories = projectData.budgetCategories;
+    const expenses = projectData.expenses;
+    const photos = projectData.photos;
 
 
     const getTaskProgress = (task: Task) => {

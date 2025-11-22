@@ -1,7 +1,5 @@
 
 import React, { useState, useMemo } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialClients, initialInteractions } from '../constants';
 import { Client, Interaction } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
@@ -9,10 +7,10 @@ import ConfirmModal from './ui/ConfirmModal';
 import { useProject } from '../contexts/ProjectContext';
 
 const CRM: React.FC = () => {
-    const { activeProjectId } = useProject();
+    const { projectData, addItem, updateItem, deleteItem } = useProject();
 
-    const [clients, setClients] = useLocalStorage<Client[]>(`constructpro_project_${activeProjectId}_clients`, initialClients);
-    const [interactions, setInteractions] = useLocalStorage<Interaction[]>(`constructpro_project_${activeProjectId}_interactions`, initialInteractions);
+    const clients = projectData.clients;
+    const interactions = projectData.interactions;
 
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isInteractionModalOpen, setIsInteractionModalOpen] = useState(false);
@@ -45,17 +43,17 @@ const CRM: React.FC = () => {
         setIsClientModalOpen(true);
     };
 
-    const handleSaveClient = () => {
+    const handleSaveClient = async () => {
         // Simple validation
         if (!currentClient.name || !currentClient.primaryContactName) {
             setValidationError('El nombre del cliente y el nombre del contacto principal son obligatorios.');
             return;
         }
 
-        if (isEditingClient) {
-            setClients(clients.map(c => c.id === currentClient.id ? currentClient as Client : c));
+        if (isEditingClient && currentClient.id) {
+            await updateItem('clients', currentClient.id, currentClient);
         } else {
-            setClients([...clients, { ...currentClient, id: `cli-${Date.now()}` } as Client]);
+            await addItem('clients', { ...currentClient, id: `cli-${Date.now()}` });
         }
         setIsClientModalOpen(false);
         setValidationError('');
@@ -68,11 +66,10 @@ const CRM: React.FC = () => {
         }
     };
 
-    const confirmDeleteClient = () => {
+    const confirmDeleteClient = async () => {
         const clientId = deleteConfirmation.id;
         if (clientId) {
-            setClients(clients.filter(c => c.id !== clientId));
-            setInteractions(interactions.filter(i => i.clientId !== clientId));
+            await deleteItem('clients', clientId);
         }
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
@@ -93,12 +90,12 @@ const CRM: React.FC = () => {
         setIsInteractionModalOpen(true);
     };
 
-    const handleSaveInteraction = () => {
+    const handleSaveInteraction = async () => {
          if (!currentInteraction.clientId || !currentInteraction.summary) {
             setValidationError('El resumen de la interacción es obligatorio.');
             return;
         }
-        setInteractions([...interactions, { ...currentInteraction, id: `int-${Date.now()}` } as Interaction]);
+        await addItem('interactions', { ...currentInteraction, id: `int-${Date.now()}` });
         setIsInteractionModalOpen(false);
         setValidationError('');
     };

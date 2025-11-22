@@ -1,16 +1,15 @@
 
 import React, { useState } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialPhotos, initialTasks } from '../constants';
-import { Photo, Task } from '../types';
+import { Photo } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import { useProject } from '../contexts/ProjectContext';
 
 const PhotoLog: React.FC = () => {
-    const { activeProjectId } = useProject();
-    const [photos, setPhotos] = useLocalStorage<Photo[]>(`constructpro_project_${activeProjectId}_photos`, initialPhotos);
-    const [tasks] = useLocalStorage<Task[]>(`constructpro_project_${activeProjectId}_tasks`, initialTasks);
+    const { projectData, addItem } = useProject();
+    const photos = projectData.photos;
+    const tasks = projectData.tasks;
+
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [newPhoto, setNewPhoto] = useState<Partial<Photo>>({ tags: [] });
@@ -35,7 +34,7 @@ const PhotoLog: React.FC = () => {
         }
     };
 
-    const handleSavePhoto = () => {
+    const handleSavePhoto = async () => {
         if (!newPhoto.url) {
             setValidationError('Por favor, seleccione una imagen para subir.');
             return;
@@ -46,14 +45,13 @@ const PhotoLog: React.FC = () => {
         }
 
         if (newPhoto.url && newPhoto.description) {
-            const photoToSave: Photo = {
+            await addItem('photos', {
                 id: `photo-${Date.now()}`,
                 url: newPhoto.url,
                 description: newPhoto.description,
                 tags: newPhoto.tags || [],
                 uploadDate: new Date().toISOString(),
-            };
-            setPhotos([...photos, photoToSave]);
+            });
             setIsUploadModalOpen(false);
             setNewPhoto({ tags: [] });
             setValidationError('');

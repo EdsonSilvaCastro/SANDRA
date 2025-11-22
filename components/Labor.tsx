@@ -1,7 +1,5 @@
 
 import React, { useState } from 'react';
-import useLocalStorage from '../hooks/useLocalStorage';
-import { initialWorkers, initialTasks, initialTimeLogs } from '../constants';
 import { Worker, Task, TimeLog } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
@@ -10,11 +8,12 @@ import { useProject } from '../contexts/ProjectContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const Labor: React.FC = () => {
-    const { activeProjectId } = useProject();
+    const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
+    const canEdit = currentUser.role !== 'viewer';
 
-    const [workers, setWorkers] = useLocalStorage<Worker[]>(`constructpro_project_${activeProjectId}_workers`, initialWorkers);
-    const [tasks] = useLocalStorage<Task[]>(`constructpro_project_${activeProjectId}_tasks`, initialTasks);
-    const [timeLogs, setTimeLogs] = useLocalStorage<TimeLog[]>(`constructpro_project_${activeProjectId}_timeLogs`, initialTimeLogs);
+    const workers = projectData.workers;
+    const tasks = projectData.tasks;
+    const timeLogs = projectData.timeLogs;
     
     const [isWorkerModalOpen, setIsWorkerModalOpen] = useState(false);
     const [isTimeLogModalOpen, setIsTimeLogModalOpen] = useState(false);
@@ -31,6 +30,7 @@ const Labor: React.FC = () => {
     });
 
     const handleOpenWorkerModal = (worker?: Worker) => {
+        if (!canEdit) return;
         setValidationError('');
         if (worker) {
             setCurrentWorker(worker);
@@ -42,22 +42,24 @@ const Labor: React.FC = () => {
         setIsWorkerModalOpen(true);
     };
 
-    const handleSaveWorker = () => {
+    const handleSaveWorker = async () => {
+        if (!canEdit) return;
         if (!currentWorker.name || !currentWorker.role || currentWorker.hourlyRate === undefined || currentWorker.hourlyRate < 0) {
             setValidationError('Por favor, complete todos los campos correctamente. La tarifa debe ser un valor positivo.');
             return;
         }
 
-        if (isEditingWorker) {
-            setWorkers(workers.map(w => w.id === currentWorker.id ? currentWorker as Worker : w));
+        if (isEditingWorker && currentWorker.id) {
+            await updateItem('workers', currentWorker.id, currentWorker);
         } else {
-            setWorkers([...workers, { ...currentWorker, id: `wrk-${Date.now()}` } as Worker]);
+            await addItem('workers', { ...currentWorker, id: `wrk-${Date.now()}` });
         }
         setIsWorkerModalOpen(false);
         setValidationError('');
     };
     
     const handleDeleteWorkerClick = (workerId: string) => {
+        if (!canEdit) return;
         const workerToDelete = workers.find(w => w.id === workerId);
         if (!workerToDelete) return;
 
@@ -71,20 +73,23 @@ const Labor: React.FC = () => {
         setDeleteConfirmation({ isOpen: true, id: workerId, name: workerToDelete.name });
     };
 
-    const confirmDeleteWorker = () => {
+    const confirmDeleteWorker = async () => {
+        if (!canEdit) return;
         if (deleteConfirmation.id) {
-            setWorkers(workers.filter(w => w.id !== deleteConfirmation.id));
+            await deleteItem('workers', deleteConfirmation.id);
         }
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
     
     const handleOpenTimeLogModal = () => {
+        if (!canEdit) return;
         setValidationError('');
         setNewTimeLog({ hours: 8, date: new Date().toISOString().split('T')[0] });
         setIsTimeLogModalOpen(true);
     }
 
-    const handleSaveTimeLog = () => {
+    const handleSaveTimeLog = async () => {
+        if (!canEdit) return;
         if (!newTimeLog.workerId || !newTimeLog.taskId || !newTimeLog.hours || !newTimeLog.date) {
             setValidationError('Todos los campos son obligatorios para registrar horas.');
             return;
@@ -95,7 +100,7 @@ const Labor: React.FC = () => {
         }
 
         if (newTimeLog.taskId && newTimeLog.workerId && newTimeLog.hours) {
-            setTimeLogs([...timeLogs, { ...newTimeLog, id: `log-${Date.now()}` } as TimeLog]);
+            await addItem('timeLogs', { ...newTimeLog, id: `log-${Date.now()}` });
             setIsTimeLogModalOpen(false);
             setValidationError('');
         }
@@ -113,12 +118,16 @@ const Labor: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Gestión de Mano de Obra</h2>
                 <div>
-                    <button onClick={handleOpenTimeLogModal} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors mr-2">
-                        Registrar Horas
-                    </button>
-                    <button onClick={() => handleOpenWorkerModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                        Añadir Trabajador
-                    </button>
+                    {canEdit && (
+                        <>
+                            <button onClick={handleOpenTimeLogModal} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors mr-2">
+                                Registrar Horas
+                            </button>
+                            <button onClick={() => handleOpenWorkerModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                                Añadir Trabajador
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -148,8 +157,12 @@ const Labor: React.FC = () => {
                                         <td className="p-3">{totalHours}</td>
                                         <td className="p-3 font-semibold">${totalCost.toFixed(2)}</td>
                                         <td className="p-3 whitespace-nowrap">
-                                            <button onClick={() => handleOpenWorkerModal(worker)} className="text-black hover:text-gray-600 font-medium">Editar</button>
-                                            <button onClick={() => handleDeleteWorkerClick(worker.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
+                                            {canEdit ? (
+                                                <>
+                                                    <button onClick={() => handleOpenWorkerModal(worker)} className="text-black hover:text-gray-600 font-medium">Editar</button>
+                                                    <button onClick={() => handleDeleteWorkerClick(worker.id)} className="ml-4 text-red-600 hover:text-red-800 font-medium">Eliminar</button>
+                                                </>
+                                            ) : <span className="text-gray-400 text-sm">Solo lectura</span>}
                                         </td>
                                     </tr>
                                 );

@@ -93,6 +93,14 @@ export interface Interaction {
   followUpDate?: string;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  password?: string; // Should be hashed in a real app
+  role?: 'admin' | 'user' | 'viewer'; // Added 'viewer'
+}
+
 export interface ContentEntry {
   id: string;
   title: string;
@@ -102,12 +110,4 @@ export interface ContentEntry {
   createdAt: string;
   updatedAt: string;
   tags: string[];
-}
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  password?: string; // Should be hashed in a real app
-  role?: 'admin' | 'user';
 }
