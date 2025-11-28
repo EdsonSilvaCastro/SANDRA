@@ -335,7 +335,7 @@ const GanttChart: React.FC<{
                             let width = endPixel - startPixel + (timeScale === 'day' ? columnWidth : 0);
                             if (width < 0) width = 0;
 
-                            const progress = task.completedVolume && task.totalVolume ? (task.completedVolume / task.totalVolume) * 100 : task.status === 'Completado' ? 100 : 0;
+                            const progress = getTaskProgress(task);
                             const statusColor = task.status === 'Completado' ? 'bg-green-500' : task.status === 'En Progreso' ? 'bg-blue-500' : task.status === 'Retrasado' ? 'bg-red-500' : 'bg-gray-400';
                             
                             return (
@@ -346,9 +346,20 @@ const GanttChart: React.FC<{
                                     style={{ top: index * 40 + 6, left: 150 + startPixel, width }}
                                     onMouseDown={(e) => canEdit && handleMouseDown(e, task, 'move')}
                                 >
-                                    <div className={`absolute left-0 top-0 h-full rounded-md ${statusColor} opacity-70 w-full`}></div>
-                                    <div className={`absolute left-0 top-0 h-full rounded-md ${statusColor}`} style={{ width: `${progress}%` }}></div>
-                                    <span className="relative text-white text-xs px-2 truncate z-10 pointer-events-none">{task.name}</span>
+                                    {/* Fondo de la barra (duración total) - Gris claro */}
+                                    <div className="absolute left-0 top-0 h-full w-full rounded-md bg-gray-200 border border-gray-300"></div>
+                                    
+                                    {/* Barra de progreso (avance) - Color sólido */}
+                                    <div 
+                                        className={`absolute left-0 top-0 h-full rounded-l-md ${progress >= 100 ? 'rounded-r-md' : ''} ${statusColor}`} 
+                                        style={{ width: `${progress}%`, transition: 'width 0.3s ease' }}
+                                    ></div>
+                                    
+                                    {/* Etiqueta de texto con porcentaje */}
+                                    <span className="relative text-xs px-2 truncate z-10 pointer-events-none font-semibold text-gray-800">
+                                        {task.name} <span className="text-[10px] font-normal opacity-90">({progress.toFixed(0)}%)</span>
+                                    </span>
+
                                     {canEdit && (
                                         <>
                                             <div 
