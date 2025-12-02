@@ -111,3 +111,12 @@ export interface ContentEntry {
   updatedAt: string;
   tags: string[];
 }
+
+// Update Project definition
+export interface Project {
+  id: string;
+  name: string;
+  ownerId: string;
+  pin?: string;
+  collaboratorIds?: string[]; // New field for sharing
+}

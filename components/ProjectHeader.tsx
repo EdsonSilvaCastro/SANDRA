@@ -13,19 +13,26 @@ interface ProjectHeaderProps {
 }
 
 const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, isManageModalOpen, setIsManageModalOpen }) => {
-    const { activeProject, projects, switchProject, createProject, updateProject, deleteProject, activeProjectId } = useProject();
+    const { activeProject, projects, switchProject, createProject, updateProject, deleteProject, activeProjectId, shareProject } = useProject();
     
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectPin, setNewProjectPin] = useState('');
     const [actionError, setActionError] = useState<string | null>(null);
+    const [actionSuccess, setActionSuccess] = useState<string | null>(null);
     
     const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
     const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
 
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
+
+    // Share State
+    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [projectToShare, setProjectToShare] = useState<Project | null>(null);
+    const [emailToShare, setEmailToShare] = useState('');
+    const [shareMessage, setShareMessage] = useState<{type: 'error' | 'success', text: string} | null>(null);
 
     const handleCreateProject = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -84,6 +91,27 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
 
+    // Share Logic
+    const handleShareClick = (project: Project) => {
+        setProjectToShare(project);
+        setIsManageModalOpen(false);
+        setIsShareModalOpen(true);
+        setEmailToShare('');
+        setShareMessage(null);
+    };
+
+    const confirmShareProject = async () => {
+        if (!projectToShare || !emailToShare) return;
+        setShareMessage(null);
+        try {
+            await shareProject(projectToShare.id, emailToShare);
+            setShareMessage({ type: 'success', text: `Proyecto compartido exitosamente con ${emailToShare}` });
+            setEmailToShare('');
+        } catch (error: any) {
+            setShareMessage({ type: 'error', text: error.message });
+        }
+    };
+
     useEffect(() => {
         if (showSaveConfirmation) {
             const timer = setTimeout(() => {
@@ -99,12 +127,21 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
         </svg>
     );
 
+    const ShareIcon = () => (
+         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+         </svg>
+    );
+
     return (
         <>
             <div className="bg-white shadow-md p-4 flex justify-between items-center no-print sticky top-0 z-10">
                 <div>
                      <span className="text-sm text-gray-500">Proyecto Actual:</span>
                     <h2 className="text-xl font-bold text-black">{activeProject?.name || 'Ningún proyecto seleccionado'}</h2>
+                    {activeProject && activeProject.ownerId !== currentUser.id && (
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full ml-1">Compartido contigo</span>
+                    )}
                 </div>
                 <div className="flex items-center gap-4">
                      <div className="text-right">
@@ -170,11 +207,19 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                     <div>
                         <h3 className="text-lg font-semibold text-black mb-2">Mis Proyectos</h3>
                         <div className="space-y-2 max-h-60 overflow-y-auto p-1 border rounded-md">
-                            {projects.length > 0 ? projects.map(project => (
+                            {projects.length > 0 ? projects.map(project => {
+                                const isOwner = project.ownerId === currentUser.id;
+                                return (
                                 <div key={project.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        {project.pin && <LockIcon />}
-                                        <span className="font-medium text-black">{project.name}</span>
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center gap-2">
+                                            {project.pin && <LockIcon />}
+                                            <span className="font-medium text-black">{project.name}</span>
+                                        </div>
+                                        {!isOwner && <span className="text-xs text-blue-600">Compartido contigo</span>}
+                                        {isOwner && project.collaboratorIds && project.collaboratorIds.length > 0 && (
+                                            <span className="text-xs text-green-600">{project.collaboratorIds.length} colaborador(es)</span>
+                                        )}
                                     </div>
                                     <div className="flex gap-2">
                                         <button
@@ -184,16 +229,28 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                                         >
                                             {project.id === activeProjectId ? 'Activo' : 'Cambiar'}
                                         </button>
-                                         <button onClick={() => handleOpenEditModal(project)} className="px-3 py-1 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">Editar</button>
-                                         <button
-                                            onClick={() => handleDeleteClick(project)}
-                                            className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
-                                        >
-                                            Eliminar
-                                        </button>
+                                        
+                                        {isOwner && (
+                                            <>
+                                                <button 
+                                                    onClick={() => handleShareClick(project)} 
+                                                    className="px-2 py-1 text-sm bg-purple-500 text-white rounded-md hover:bg-purple-600 flex items-center justify-center"
+                                                    title="Compartir Proyecto"
+                                                >
+                                                    <ShareIcon />
+                                                </button>
+                                                <button onClick={() => handleOpenEditModal(project)} className="px-3 py-1 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600">Editar</button>
+                                                <button
+                                                    onClick={() => handleDeleteClick(project)}
+                                                    className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+                                                >
+                                                    Eliminar
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-                            )) : <p className="text-center text-gray-500 p-4">No tienes proyectos. ¡Crea uno para empezar!</p>}
+                            )}) : <p className="text-center text-gray-500 p-4">No tienes proyectos. ¡Crea uno para empezar!</p>}
                         </div>
                     </div>
                 </div>
@@ -222,6 +279,45 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ onLogout, currentUser, is
                             />
                         </div>
                         <button onClick={handleUpdateProject} className="w-full px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Guardar Cambios</button>
+                    </div>
+                </Modal>
+            )}
+
+            {projectToShare && (
+                <Modal isOpen={isShareModalOpen} onClose={() => setIsShareModalOpen(false)} title={`Compartir Proyecto: ${projectToShare.name}`}>
+                    <div className="space-y-4">
+                        <p className="text-sm text-gray-600">Introduce el correo electrónico del usuario con el que deseas compartir este proyecto. El usuario debe estar registrado en la aplicación.</p>
+                        
+                        <input
+                            type="email"
+                            placeholder="correo@ejemplo.com"
+                            value={emailToShare}
+                            onChange={(e) => setEmailToShare(e.target.value)}
+                            className="w-full p-2 border rounded bg-white text-black"
+                        />
+
+                        {shareMessage && (
+                            <div className={`p-2 rounded text-sm ${shareMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {shareMessage.text}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 justify-end">
+                            <button onClick={() => setIsShareModalOpen(false)} className="px-4 py-2 text-gray-600 bg-gray-200 rounded hover:bg-gray-300">Cerrar</button>
+                            <button onClick={confirmShareProject} className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Compartir</button>
+                        </div>
+
+                        {projectToShare.collaboratorIds && projectToShare.collaboratorIds.length > 0 && (
+                            <div className="mt-4 pt-4 border-t">
+                                <h4 className="font-semibold mb-2">Colaboradores Actuales:</h4>
+                                <ul className="list-disc list-inside text-sm text-gray-700">
+                                    {projectToShare.collaboratorIds.map(uid => (
+                                        <li key={uid}>ID Usuario: {uid}</li> 
+                                    ))}
+                                </ul>
+                                <p className="text-xs text-gray-400 mt-1">* Para gestionar o eliminar colaboradores, contacte al soporte (funcionalidad avanzada).</p>
+                            </div>
+                        )}
                     </div>
                 </Modal>
             )}

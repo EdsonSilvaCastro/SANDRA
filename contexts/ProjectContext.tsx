@@ -8,6 +8,7 @@ export interface Project {
   name: string;
   ownerId: string;
   pin?: string;
+  collaboratorIds?: string[];
 }
 
 // Helpers for Data Mapping
@@ -67,6 +68,7 @@ interface ProjectContextType {
   createProject: (name: string, pin?: string) => Promise<void>;
   updateProject: (id: string, data: Partial<Omit<Project, 'id' | 'ownerId'>>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  shareProject: (projectId: string, email: string) => Promise<void>; // New function
   isReady: boolean;
   unlockedProjects: Record<string, boolean>;
   unlockProject: (id: string) => void;
@@ -194,15 +196,19 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
         }
     };
     init();
-  }, [currentUser]); // Added currentUser to dependencies to ensure admin check works
+  }, [currentUser]);
 
   // 2. Determine Active Project
   useEffect(() => {
     if (!isReady) return;
     
+    // Filter logic including Shared Projects
     let projectsForCurrentUser = allProjects;
     if (currentUser.role !== 'admin' && currentUser.role !== 'viewer') {
-         projectsForCurrentUser = allProjects.filter(p => p.ownerId === currentUser.id);
+         projectsForCurrentUser = allProjects.filter(p => 
+            p.ownerId === currentUser.id || 
+            (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id))
+         );
     }
     
     if (projectsForCurrentUser.length > 0 && !activeProjectId) {
@@ -287,11 +293,12 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   };
 
   const createProject = async (name: string, pin?: string) => {
-    const newProject = {
-        id: isConfigured ? `proj-${Date.now()}` : generateId('proj'), // Placeholder ID for Supabase if not returned, real ID for Local
+    const newProject: Project = {
+        id: isConfigured ? `proj-${Date.now()}` : generateId('proj'),
         name,
         pin,
-        ownerId: currentUser.id // camelCase for local, converted later for DB
+        ownerId: currentUser.id,
+        collaboratorIds: [] // Init with empty collaborators
     };
 
     // --- OFFLINE MODE ---
@@ -313,7 +320,8 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
         const dbProject = {
             name,
             pin,
-            owner_id: currentUser.id
+            owner_id: currentUser.id,
+            collaborator_ids: []
         };
         const { data, error } = await supabase.from('projects').insert(dbProject).select().single();
         
@@ -382,6 +390,30 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
          console.error("Error deleting project:", formatError(error));
          throw error;
     }
+  };
+
+  const shareProject = async (projectId: string, email: string) => {
+    const userToShare = allUsers.find(u => u.email === email);
+    if (!userToShare) {
+        throw new Error("No se encontró ningún usuario con ese correo electrónico.");
+    }
+    
+    if (userToShare.id === currentUser.id) {
+         throw new Error("No puedes compartir el proyecto contigo mismo.");
+    }
+
+    const projectToShare = allProjects.find(p => p.id === projectId);
+    if (!projectToShare) throw new Error("Proyecto no encontrado");
+
+    const currentCollaborators = projectToShare.collaboratorIds || [];
+    if (currentCollaborators.includes(userToShare.id)) {
+        throw new Error("Este usuario ya es colaborador en este proyecto.");
+    }
+
+    const updatedCollaborators = [...currentCollaborators, userToShare.id];
+    
+    // Use existing update logic which handles local vs supabase
+    await updateProject(projectId, { collaboratorIds: updatedCollaborators });
   };
 
   const unlockProject = (id: string) => {
@@ -559,7 +591,10 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   
   let visibleProjects = allProjects;
   if (currentUser.role !== 'admin' && currentUser.role !== 'viewer') {
-      visibleProjects = allProjects.filter(p => p.ownerId === currentUser.id);
+      visibleProjects = allProjects.filter(p => 
+        p.ownerId === currentUser.id || 
+        (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id))
+      );
   }
 
   const value = { 
@@ -570,6 +605,7 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
       createProject, 
       updateProject, 
       deleteProject, 
+      shareProject,
       isReady, 
       unlockedProjects, 
       unlockProject, 
