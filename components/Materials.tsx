@@ -4,6 +4,7 @@ import { Material, MaterialOrder } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
+import ExcelImportModal from './ui/ExcelImportModal';
 import { GoogleGenAI, Type } from "@google/genai";
 import { useProject } from '../contexts/ProjectContext';
 
@@ -33,6 +34,9 @@ const Materials: React.FC = () => {
     const [suppliersError, setSuppliersError] = useState<string | null>(null);
     const [selectedMaterialForSuppliers, setSelectedMaterialForSuppliers] = useState<Material | null>(null);
     
+    // Import Modal State
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
     const [notification, setNotification] = useState<string | null>(null);
     const [validationError, setValidationError] = useState<string>('');
 
@@ -248,6 +252,29 @@ const Materials: React.FC = () => {
         }
     };
 
+    // Excel Import Logic
+    const handleImportMaterials = async (data: any[]) => {
+        let count = 0;
+        for (const row of data) {
+            // Map Excel columns to Material props
+            const newMaterial: Partial<Material> = {
+                name: row['Nombre'],
+                description: row['Descripción'] || '',
+                quantity: Number(row['Cantidad']) || 0,
+                unit: row['Unidad'] || 'unidades',
+                unitCost: Number(row['Costo']) || 0,
+                criticalStockLevel: Number(row['Stock Crítico']) || 0,
+                location: row['Ubicación'] || ''
+            };
+
+            // Basic validation
+            if (newMaterial.name && typeof newMaterial.quantity === 'number') {
+                await addItem('materials', { ...newMaterial, id: `mat-imp-${Date.now()}-${count}` });
+                count++;
+            }
+        }
+    };
+
 
     return (
         <div>
@@ -269,9 +296,15 @@ const Materials: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Inventario de Materiales</h2>
                 {canEdit && (
-                    <button onClick={() => handleOpenMaterialModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                        Añadir Material
-                    </button>
+                    <div className="flex gap-2">
+                         <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            Importar Excel
+                        </button>
+                        <button onClick={() => handleOpenMaterialModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                            Añadir Material
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -465,6 +498,15 @@ const Materials: React.FC = () => {
                     </div>
                 )}
             </Modal>
+            
+            <ExcelImportModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={handleImportMaterials}
+                title="Importar Materiales desde Excel"
+                expectedColumns={['Nombre', 'Cantidad', 'Unidad', 'Costo', 'Stock Crítico', 'Ubicación']}
+                templateFileName="plantilla_materiales.xlsx"
+            />
 
             <ConfirmModal
                 isOpen={deleteConfirmation.isOpen}

@@ -5,6 +5,7 @@ import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
+import ExcelImportModal from './ui/ExcelImportModal';
 import { useProject } from '../contexts/ProjectContext';
 import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -457,6 +458,9 @@ const Planning: React.FC = () => {
     const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
     const [validationError, setValidationError] = useState<string>('');
+    
+    // Import Modal State
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     const handleOpenModal = (task?: Task) => {
         if (!canEdit) return;
@@ -574,15 +578,59 @@ const Planning: React.FC = () => {
         });
     };
 
+    // Excel Import Logic
+    const handleImportTasks = async (data: any[]) => {
+        let count = 0;
+        for (const row of data) {
+            // Helper to parse dates from Excel (which can be serial numbers or strings)
+            const parseDate = (val: any) => {
+                if (!val) return new Date().toISOString().split('T')[0];
+                if (typeof val === 'number') {
+                    // Excel serial date to JS Date
+                    const date = new Date((val - (25567 + 2)) * 86400 * 1000);
+                    return date.toISOString().split('T')[0];
+                }
+                // Try parsing string date
+                try {
+                    const date = new Date(val);
+                    if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+                } catch(e) {}
+                return new Date().toISOString().split('T')[0];
+            };
+
+            const newTask: Partial<Task> = {
+                name: row['Nombre'],
+                description: row['Descripción'] || '',
+                startDate: parseDate(row['Fecha Inicio']),
+                endDate: parseDate(row['Fecha Fin']),
+                status: row['Estado'] || 'No Iniciado',
+                totalVolume: Number(row['Volumen Total']) || undefined,
+                volumeUnit: row['Unidad'] || undefined,
+                totalValue: Number(row['Costo']) || undefined
+            };
+
+            if (newTask.name) {
+                await addItem('tasks', { ...newTask, id: `tsk-imp-${Date.now()}-${count}` });
+                count++;
+            }
+        }
+    };
+
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-semibold text-black">Planificación del Proyecto</h2>
                 <div className="flex flex-wrap gap-2">
                     {canEdit && (
-                        <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                            Añadir Tarea
-                        </button>
+                        <>
+                            <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Importar Excel
+                            </button>
+                            <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                                Añadir Tarea
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -792,6 +840,15 @@ const Planning: React.FC = () => {
                  </div>
             </Modal>
             
+             <ExcelImportModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={handleImportTasks}
+                title="Importar Tareas desde Excel"
+                expectedColumns={['Nombre', 'Descripción', 'Fecha Inicio', 'Fecha Fin', 'Estado']}
+                templateFileName="plantilla_tareas.xlsx"
+            />
+
             {viewingPhotoUrl && (
                  <Modal isOpen={!!viewingPhotoUrl} onClose={() => setViewingPhotoUrl(null)} title="Vista Previa de Foto">
                     <img src={viewingPhotoUrl} alt="Vista Previa" className="w-full max-h-[80vh] object-contain rounded-lg"/>
