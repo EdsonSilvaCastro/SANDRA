@@ -214,9 +214,10 @@ const Materials: React.FC = () => {
         setSuppliersError(null);
         
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            // FIX: Initialize GoogleGenAI with named apiKey parameter and use gemini-3-flash-preview for text reasoning.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: `Encuentra al menos 3 proveedores de '${material.name}' cerca de '${material.location}'.`,
                 config: {
                     responseMimeType: "application/json",
@@ -234,7 +235,8 @@ const Materials: React.FC = () => {
                                     description: 'Una breve descripción, dirección o información de contacto del proveedor.'
                                 }
                             },
-                            required: ['name', 'description']
+                            required: ['name', 'description'],
+                            propertyOrdering: ["name", "description"]
                         }
                     }
                 }

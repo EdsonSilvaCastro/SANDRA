@@ -4,6 +4,7 @@ import Card from './ui/Card';
 import ProgressBar from './ui/ProgressBar';
 import { useProject } from '../contexts/ProjectContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Task } from '../types';
 
 const Dashboard: React.FC = () => {
   const { projectData } = useProject();
@@ -13,38 +14,46 @@ const Dashboard: React.FC = () => {
   const budgetCategories = projectData.budgetCategories;
   const expenses = projectData.expenses;
 
+  // Helper para obtener el progreso de una tarea individual (0 a 1)
+  const getTaskProgressFactor = (task: Task): number => {
+    if (task.totalVolume && task.totalVolume > 0) {
+      return Math.min(1, (task.completedVolume || 0) / task.totalVolume);
+    }
+    if (task.status === 'Completado') return 1;
+    if (task.status === 'En Progreso') return 0.1; // Valor base si está en progreso pero sin volumen definido
+    return 0;
+  };
+
   const totalBudget = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
   const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
   const budgetProgress = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   
-  const totalProjectVolume = tasks.reduce((acc, task) => acc + (task.totalVolume || 0), 0);
-  const completedProjectVolume = tasks.reduce((acc, task) => acc + (task.completedVolume || 0), 0);
-  const completedTasks = tasks.filter(t => t.status === 'Completado').length;
-  
-  const projectProgress = totalProjectVolume > 0 
-      ? (completedProjectVolume / totalProjectVolume) * 100 
-      : tasks.length > 0 ? (completedTasks / tasks.length) * 100 : 0;
-  
-  const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
+  // Cálculo de Progreso del Proyecto Ponderado
+  // Si las tareas tienen valor monetario, usamos Valor Ganado (Earned Value)
+  // Si no, usamos el promedio simple de los porcentajes de cada tarea.
+  const tasksWithTotalValue = tasks.filter(t => (t.totalValue || 0) > 0);
+  const totalProjectValue = tasks.reduce((acc, task) => acc + (task.totalValue || 0), 0);
+
+  let projectProgress = 0;
+  if (tasks.length > 0) {
+    if (totalProjectValue > 0) {
+      // Ponderación por Valor Económico (Más preciso para construcción)
+      const earnedValue = tasks.reduce((acc, task) => {
+        return acc + ((task.totalValue || 0) * getTaskProgressFactor(task));
+      }, 0);
+      projectProgress = (earnedValue / totalProjectValue) * 100;
+    } else {
+      // Ponderación Equitativa (Promedio simple de avances)
+      const sumProgress = tasks.reduce((acc, task) => acc + getTaskProgressFactor(task), 0);
+      projectProgress = (sumProgress / tasks.length) * 100;
+    }
+  }
 
   const executedWorkValue = tasks.reduce((acc, task) => {
-    if (!task.totalValue) {
-        return acc;
-    }
-
-    if (task.status === 'Completado') {
-        return acc + task.totalValue;
-    }
-
-    if (task.status === 'En Progreso') {
-        const progress = (task.totalVolume && task.totalVolume > 0) 
-            ? ((task.completedVolume || 0) / task.totalVolume)
-            : 0;
-        return acc + (task.totalValue * progress);
-    }
-
-    return acc;
+    return acc + ((task.totalValue || 0) * getTaskProgressFactor(task));
   }, 0);
+
+  const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
 
   const budgetChartData = budgetCategories.map(cat => {
     const spent = expenses.filter(exp => exp.categoryId === cat.id).reduce((sum, exp) => sum + exp.amount, 0);
@@ -94,7 +103,8 @@ const Dashboard: React.FC = () => {
         </Card>
         <Card>
           <h4 className="font-medium text-black">Progreso del Proyecto</h4>
-          <p className="text-3xl font-bold text-black">{projectProgress.toFixed(0)}%</p>
+          <p className="text-3xl font-bold text-black">{projectProgress.toFixed(1)}%</p>
+          <ProgressBar value={projectProgress} color="green" className="mt-2" />
         </Card>
         <Card>
           <h4 className="font-medium text-black">Artículos con Stock Bajo</h4>
@@ -106,10 +116,10 @@ const Dashboard: React.FC = () => {
         <Card title="Resumen del Presupuesto">
            <div className="mb-4">
              <div className="flex justify-between mb-1">
-                <span className="text-base font-medium text-black">Progreso del Presupuesto</span>
+                <span className="text-base font-medium text-black">Ejecución Presupuestaria</span>
                 <span className="text-sm font-medium text-black">{budgetProgress.toFixed(1)}%</span>
             </div>
-            <ProgressBar value={budgetProgress} color={budgetProgress > 90 ? 'red' : budgetProgress > 75 ? 'yellow' : 'blue'} />
+            <ProgressBar value={budgetProgress} color={budgetProgress > 100 ? 'red' : budgetProgress > 85 ? 'yellow' : 'blue'} />
            </div>
           <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
@@ -131,7 +141,12 @@ const Dashboard: React.FC = () => {
             {upcomingTasks.map(task => (
               <li key={task.id} className="p-3 bg-gray-50 rounded-md">
                 <p className="font-semibold text-black">{task.name}</p>
-                <p className="text-sm text-black">Vence: {new Date(task.endDate).toLocaleDateString()}</p>
+                <div className="flex justify-between items-center mt-1">
+                    <p className="text-xs text-black">Vence: {new Date(task.endDate).toLocaleDateString()}</p>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full text-white ${TASK_STATUS_COLORS[task.status] || 'bg-gray-400'}`}>
+                        {task.status}
+                    </span>
+                </div>
               </li>
             ))}
              {upcomingTasks.length === 0 && (
