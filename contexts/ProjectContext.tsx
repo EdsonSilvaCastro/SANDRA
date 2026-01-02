@@ -98,7 +98,7 @@ const TABLE_MAP: Record<keyof ProjectData, string> = {
     workers: 'workers',
     tasks: 'tasks',
     timeLogs: 'time_logs',
-    budgetCategories: 'budget_categories',
+    budgetCategories: 'budget_items',
     expenses: 'expenses',
     photos: 'photos',
     clients: 'clients',
@@ -441,7 +441,13 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
       // --- SUPABASE MODE ---
       try {
-          const itemWithProject = { ...itemWithId, project_id: activeProjectId };
+          let itemWithProject = { ...itemWithId, project_id: activeProjectId };
+          
+          // Special handling for budgetCategories - map 'name' to 'category' for DB
+          if (resource === 'budgetCategories' && itemWithProject.name) {
+              itemWithProject = { ...itemWithProject, category: itemWithProject.name };
+          }
+          
           const dbItem = mapKeysToSnake(itemWithProject);
           
           const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
