@@ -36,10 +36,12 @@ export interface Task {
   completionDate?: string;
   totalVolume?: number;
   completedVolume?: number;
+  unitPrice?: number; // Nuevo campo: Precio por unidad
   volumeUnit?: string;
   photoIds?: string[];
   dependsOn?: string[];
-  totalValue?: number;
+  totalValue?: number; // Se calcula como totalVolume * unitPrice
+  isExtraordinary?: boolean;
 }
 
 export interface TimeLog {

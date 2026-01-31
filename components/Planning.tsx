@@ -88,32 +88,6 @@ const GanttChart: React.FC<{
 
     const projectStartDate = overallStartDate.getTime();
 
-    const chartData = useMemo(() => sortedTasks.map(task => {
-        const start = new Date(task.startDate).getTime();
-        const end = new Date(task.endDate).getTime();
-        let duration = end - start;
-        if (duration < 0) duration = 0;
-
-        const progress = getTaskProgress(task);
-        const completed = duration * (progress / 100);
-        const remaining = duration - completed;
-
-        return {
-            name: task.name,
-            offset: start - projectStartDate,
-            completed: completed,
-            remaining: remaining,
-            startDate: new Date(start).toLocaleDateString('es-ES'),
-            endDate: new Date(end).toLocaleDateString('es-ES'),
-            status: task.status
-        };
-    }), [sortedTasks, projectStartDate, getTaskProgress]);
-    
-    const tickFormatter = useCallback((tick: number) => {
-        const date = new Date(projectStartDate + tick);
-        return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-    }, [projectStartDate]);
-
     useEffect(() => {
         if (!ganttContainerRef.current) return;
         const newPositions: Record<string, { top: number, height: number }> = {};
@@ -188,7 +162,6 @@ const GanttChart: React.FC<{
             if (newStartDate > newEndDate) newStartDate = newEndDate;
         }
         
-        const formatStr = { year: 'numeric', month: '2-digit', day: '2-digit' } as const;
         // @ts-ignore
         setTooltip({
             x: e.clientX + 15,
@@ -240,20 +213,6 @@ const GanttChart: React.FC<{
                     setTooltip(null);
                     return;
                 }
-            }
-        }
-        const dependentTasks = tasks.filter(t => t.dependsOn?.includes(dragInfo.task.id));
-        for (const depTask of dependentTasks) {
-            if (new Date(depTask.startDate) < newEndDate) {
-                alert(`Conflicto de dependencia: La tarea "${depTask.name}" (que depende de esta) empezaría antes de que esta termine.`);
-                 const taskBar = ganttContainerRef.current?.querySelector(`[data-bar-id="${dragInfo.task.id}"]`) as HTMLElement;
-                 if (taskBar) {
-                     taskBar.style.left = `${dateToPixel(dragInfo.initialStartDate)}px`;
-                     taskBar.style.width = `${dateToPixel(dragInfo.initialEndDate) - dateToPixel(dragInfo.initialStartDate)}px`;
-                 }
-                setDragInfo(null);
-                setTooltip(null);
-                return;
             }
         }
 
@@ -327,7 +286,10 @@ const GanttChart: React.FC<{
                     <div className="relative">
                         {sortedTasks.map((task, index) => (
                              <div key={task.id} data-task-id={task.id} className="gantt-task-row flex items-center border-b" style={{ height: 40 }}>
-                                <div className="w-[150px] flex-shrink-0 p-2 text-sm font-medium truncate text-black sticky left-0 bg-white border-r z-10 h-full flex items-center">{task.name}</div>
+                                <div className="w-[150px] flex-shrink-0 p-2 text-sm font-medium truncate text-black sticky left-0 bg-white border-r z-10 h-full flex items-center">
+                                    {task.isExtraordinary && <span className="w-2 h-2 rounded-full bg-orange-500 mr-2 flex-shrink-0" title="Extraordinario"></span>}
+                                    {task.name}
+                                </div>
                              </div>
                         ))}
                         {sortedTasks.map((task, index) => {
@@ -337,8 +299,13 @@ const GanttChart: React.FC<{
                             if (width < 0) width = 0;
 
                             const progress = getTaskProgress(task);
-                            const statusColor = task.status === 'Completado' ? 'bg-green-500' : task.status === 'En Progreso' ? 'bg-blue-500' : task.status === 'Retrasado' ? 'bg-red-500' : 'bg-gray-400';
+                            let statusColor = task.status === 'Completado' ? 'bg-green-500' : task.status === 'En Progreso' ? 'bg-blue-500' : task.status === 'Retrasado' ? 'bg-red-500' : 'bg-gray-400';
                             
+                            // Highlight extraordinary tasks with orange tone if not completed
+                            if (task.isExtraordinary && task.status !== 'Completado') {
+                                statusColor = 'bg-orange-500';
+                            }
+
                             return (
                                 <div
                                     key={task.id}
@@ -347,30 +314,18 @@ const GanttChart: React.FC<{
                                     style={{ top: index * 40 + 6, left: 150 + startPixel, width }}
                                     onMouseDown={(e) => canEdit && handleMouseDown(e, task, 'move')}
                                 >
-                                    {/* Fondo de la barra (duración total) - Gris claro */}
-                                    <div className="absolute left-0 top-0 h-full w-full rounded-md bg-gray-200 border border-gray-300"></div>
-                                    
-                                    {/* Barra de progreso (avance) - Color sólido */}
+                                    <div className={`absolute left-0 top-0 h-full w-full rounded-md ${task.isExtraordinary ? 'bg-orange-100' : 'bg-gray-200'} border ${task.isExtraordinary ? 'border-orange-300' : 'border-gray-300'}`}></div>
                                     <div 
                                         className={`absolute left-0 top-0 h-full rounded-l-md ${progress >= 100 ? 'rounded-r-md' : ''} ${statusColor}`} 
                                         style={{ width: `${progress}%`, transition: 'width 0.3s ease' }}
                                     ></div>
-                                    
-                                    {/* Etiqueta de texto con porcentaje */}
                                     <span className="relative text-xs px-2 truncate z-10 pointer-events-none font-semibold text-gray-800">
                                         {task.name} <span className="text-[10px] font-normal opacity-90">({progress.toFixed(0)}%)</span>
                                     </span>
-
                                     {canEdit && (
                                         <>
-                                            <div 
-                                                className="absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20" 
-                                                onMouseDown={(e) => handleMouseDown(e, task, 'resize-start')}
-                                            />
-                                            <div 
-                                                className="absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20"
-                                                onMouseDown={(e) => handleMouseDown(e, task, 'resize-end')}
-                                            />
+                                            <div className="absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20" onMouseDown={(e) => handleMouseDown(e, task, 'resize-start')} />
+                                            <div className="absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20" onMouseDown={(e) => handleMouseDown(e, task, 'resize-end')} />
                                         </>
                                     )}
                                 </div>
@@ -381,55 +336,6 @@ const GanttChart: React.FC<{
                                 <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-1 rounded-sm">Hoy</div>
                             </div>
                         )}
-                        <svg className="absolute top-0 left-[150px] w-full h-full pointer-events-none z-10">
-                            <defs>
-                                <marker id="arrowhead" markerWidth="5" markerHeight="3.5" refX="4.5" refY="1.75" orient="auto">
-                                    <polygon points="0 0, 5 1.75, 0 3.5" fill="#333" />
-                                </marker>
-                            </defs>
-                            {sortedTasks.map(task => {
-                                if (!task.dependsOn) return null;
-                                return task.dependsOn.map(depId => {
-                                    const fromTask = sortedTasks.find(t => t.id === depId);
-                                    if (!fromTask) return null;
-
-                                    const fromIndex = sortedTasks.findIndex(t => t.id === fromTask.id);
-                                    const toIndex = sortedTasks.findIndex(t => t.id === task.id);
-
-                                    if(fromIndex < 0 || toIndex < 0) return null;
-                                    
-                                    const fromX = dateToPixel(new Date(fromTask.endDate)) + (timeScale === 'day' ? columnWidth : 0);
-                                    const fromY = fromIndex * 40 + 20;
-                                    const toX = dateToPixel(new Date(task.startDate));
-                                    const toY = toIndex * 40 + 20;
-
-                                    if (toX <= fromX) return <path key={`${depId}-${task.id}`} d={`M ${fromX} ${fromY} L ${toX} ${toY}`} stroke="#ef4444" strokeWidth="2" fill="none" markerEnd="url(#arrowhead)" />;
-                                    
-                                    return <path key={`${depId}-${task.id}`} d={`M ${fromX} ${fromY} H ${fromX + 10} V ${toY} H ${toX}`} stroke="#333" strokeWidth="1.5" fill="none" markerEnd="url(#arrowhead)" />;
-                                });
-                            })}
-                        </svg>
-                        <div className="absolute top-0 left-[150px] w-full h-full pointer-events-none">
-                             <ResponsiveContainer>
-                                <BarChart
-                                    layout="vertical"
-                                    data={chartData}
-                                    margin={{ top: 40, right: 0, left: 0, bottom: 20 }}
-                                >
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis 
-                                        type="number" 
-                                        dataKey="offset" 
-                                        domain={[0, overallEndDate.getTime() - projectStartDate]} 
-                                        tickFormatter={tickFormatter} 
-                                        tick={{ fontSize: 10, fill: '#000' }} 
-                                        dy={5} 
-                                        xAxisId="gantt-axis"
-                                        orientation="top"
-                                    />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -458,18 +364,58 @@ const Planning: React.FC = () => {
     const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
     const [validationError, setValidationError] = useState<string>('');
+    const [activeTab, setActiveTab] = useState<'all' | 'base' | 'extraordinary'>('all');
     
     // Import Modal State
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-    const handleOpenModal = (task?: Task) => {
+    const filteredTasksByTab = useMemo(() => {
+        if (activeTab === 'base') return tasks.filter(t => !t.isExtraordinary);
+        if (activeTab === 'extraordinary') return tasks.filter(t => t.isExtraordinary);
+        return tasks;
+    }, [tasks, activeTab]);
+
+    const extraordinaryStats = useMemo(() => {
+        const extra = tasks.filter(t => t.isExtraordinary);
+        return {
+            count: extra.length,
+            totalValue: extra.reduce((sum, t) => sum + (t.totalValue || 0), 0),
+            completedValue: extra.reduce((sum, t) => {
+                const prog = (t.totalVolume && t.totalVolume > 0) ? (t.completedVolume || 0) / t.totalVolume : (t.status === 'Completado' ? 1 : 0);
+                return sum + ((t.totalValue || 0) * prog);
+            }, 0)
+        };
+    }, [tasks]);
+
+    // Función para manejar cambios en Volumen o Precio y recalcular el Total
+    const handleVolumeOrPriceChange = (field: 'totalVolume' | 'unitPrice', value: number) => {
+        setCurrentTask(prev => {
+            const next = { ...prev, [field]: value };
+            const vol = field === 'totalVolume' ? value : (prev.totalVolume || 0);
+            const price = field === 'unitPrice' ? value : (prev.unitPrice || 0);
+            next.totalValue = vol * price;
+            return next;
+        });
+        setValidationError('');
+    };
+
+    const handleOpenModal = (task?: Task, forceExtraordinary: boolean = false) => {
         if (!canEdit) return;
         setValidationError('');
         if (task) {
             setCurrentTask({ ...task, photoIds: task.photoIds || [], dependsOn: task.dependsOn || [] });
             setIsEditing(true);
         } else {
-            setCurrentTask({ status: 'No Iniciado', startDate: new Date().toISOString().split('T')[0], photoIds: [], dependsOn: [] });
+            setCurrentTask({ 
+                status: 'No Iniciado', 
+                startDate: new Date().toISOString().split('T')[0], 
+                photoIds: [], 
+                dependsOn: [],
+                totalVolume: 0,
+                unitPrice: 0,
+                totalValue: 0,
+                isExtraordinary: forceExtraordinary || activeTab === 'extraordinary'
+            });
             setIsEditing(false);
         }
         setIsModalOpen(true);
@@ -481,43 +427,21 @@ const Planning: React.FC = () => {
             setValidationError('Nombre de tarea y fechas de inicio/fin son obligatorios.');
             return;
         }
-        if (currentTask.dependsOn && currentTask.dependsOn.length > 0) {
-            for (const depId of currentTask.dependsOn) {
-                const dependencyTask = tasks.find(t => t.id === depId);
-                if (dependencyTask) {
-                    if (currentTask.startDate && new Date(currentTask.startDate) < new Date(dependencyTask.endDate)) {
-                        setValidationError(`Conflicto de dependencia: La tarea no puede comenzar antes de que finalice "${dependencyTask.name}".`);
-                        return; 
-                    }
-                    if ((currentTask.status === 'En Progreso' || currentTask.status === 'Completado') && dependencyTask.status !== 'Completado') {
-                         setValidationError(`Conflicto de dependencia: La tarea no puede avanzar porque "${dependencyTask.name}" aún no está completada.`);
-                        return; 
-                    }
-                }
-            }
-        }
 
         const taskToSave: Partial<Task> = { ...currentTask };
     
         if (typeof taskToSave.totalVolume === 'number' && taskToSave.totalVolume > 0) {
             const completedVolume = taskToSave.completedVolume || 0;
             const totalVolume = taskToSave.totalVolume;
-    
             if (completedVolume >= totalVolume) {
-                if (taskToSave.status !== 'Completado') {
-                    taskToSave.status = 'Completado';
-                }
+                if (taskToSave.status !== 'Completado') taskToSave.status = 'Completado';
             } else if (completedVolume > 0) {
-                if (taskToSave.status === 'No Iniciado' || taskToSave.status === 'Completado') {
-                    taskToSave.status = 'En Progreso';
-                }
+                if (taskToSave.status === 'No Iniciado' || taskToSave.status === 'Completado') taskToSave.status = 'En Progreso';
             }
         }
         
         if (taskToSave.status === 'Completado') {
-            if (!taskToSave.completionDate) {
-                taskToSave.completionDate = new Date().toISOString().split('T')[0];
-            }
+            if (!taskToSave.completionDate) taskToSave.completionDate = new Date().toISOString().split('T')[0];
         } else {
             taskToSave.completionDate = undefined;
         }
@@ -542,14 +466,13 @@ const Planning: React.FC = () => {
     const confirmDeleteTask = async () => {
         if (!canEdit) return;
         const taskId = deleteConfirmation.id;
-        if (taskId) {
-            await deleteItem('tasks', taskId);
-        }
+        if (taskId) await deleteItem('tasks', taskId);
         setDeleteConfirmation({ isOpen: false, id: null, name: '' });
     };
     
-    const getStatusColor = (status: Task['status']) => {
-        switch (status) {
+    const getStatusColor = (task: Task) => {
+        if (task.isExtraordinary && task.status !== 'Completado') return 'bg-orange-500';
+        switch (task.status) {
             case 'Completado': return 'bg-green-500';
             case 'En Progreso': return 'bg-blue-500';
             case 'Retrasado': return 'bg-red-500';
@@ -578,19 +501,15 @@ const Planning: React.FC = () => {
         });
     };
 
-    // Excel Import Logic
     const handleImportTasks = async (data: any[]) => {
         let count = 0;
         for (const row of data) {
-            // Helper to parse dates from Excel (which can be serial numbers or strings)
             const parseDate = (val: any) => {
                 if (!val) return new Date().toISOString().split('T')[0];
                 if (typeof val === 'number') {
-                    // Excel serial date to JS Date
                     const date = new Date((val - (25567 + 2)) * 86400 * 1000);
                     return date.toISOString().split('T')[0];
                 }
-                // Try parsing string date
                 try {
                     const date = new Date(val);
                     if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
@@ -605,8 +524,10 @@ const Planning: React.FC = () => {
                 endDate: parseDate(row['Fecha Fin']),
                 status: row['Estado'] || 'No Iniciado',
                 totalVolume: Number(row['Volumen Total']) || undefined,
+                unitPrice: Number(row['Precio Unitario']) || undefined,
                 volumeUnit: row['Unidad'] || undefined,
-                totalValue: Number(row['Costo']) || undefined
+                totalValue: (Number(row['Volumen Total']) * Number(row['Precio Unitario'])) || Number(row['Costo']) || undefined,
+                isExtraordinary: row['Extraordinario']?.toString().toLowerCase() === 'si'
             };
 
             if (newTask.name) {
@@ -618,80 +539,108 @@ const Planning: React.FC = () => {
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-semibold text-black">Planificación del Proyecto</h2>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <div>
+                    <h2 className="text-3xl font-semibold text-black">Planificación</h2>
+                    <p className="text-sm text-gray-500">Gestión del cronograma y trabajos extraordinarios</p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                     {canEdit && (
                         <>
-                            <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2">
+                            <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 text-sm">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                Importar Excel
+                                Importar
                             </button>
-                            <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                            <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors text-sm">
                                 Añadir Tarea
+                            </button>
+                            <button onClick={() => handleOpenModal(undefined, true)} className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors text-sm font-semibold">
+                                + Trabajo Extraordinario
                             </button>
                         </>
                     )}
                 </div>
             </div>
             
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <Card>
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Trabajos Extraordinarios</p>
+                    <p className="text-2xl font-bold text-black">{extraordinaryStats.count} <span className="text-sm font-normal text-gray-400">tareas</span></p>
+                </Card>
+                <Card>
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Presupuesto Extraordinario</p>
+                    <p className="text-2xl font-bold text-orange-600">${extraordinaryStats.totalValue.toLocaleString()}</p>
+                </Card>
+                <Card>
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Ejecutado Extraordinario</p>
+                    <p className="text-2xl font-bold text-green-600">${extraordinaryStats.completedValue.toLocaleString()}</p>
+                </Card>
+            </div>
+
             <div className="mb-6">
                 <GanttChart tasks={tasks} onUpdateTask={(t) => updateItem('tasks', t.id, t)} canEdit={canEdit} />
             </div>
 
-            <Card title="Lista de Tareas">
+            <div className="flex border-b border-gray-200 mb-6 no-print overflow-x-auto">
+                <button onClick={() => setActiveTab('all')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'all' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    Todas las Tareas
+                </button>
+                <button onClick={() => setActiveTab('base')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'base' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    Cronograma Base
+                </button>
+                <button onClick={() => setActiveTab('extraordinary')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'extraordinary' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    Trabajos Extraordinarios
+                </button>
+            </div>
+
+            <Card title={activeTab === 'extraordinary' ? 'Detalle de Trabajos Extraordinarios' : 'Lista de Tareas'}>
                 <div className="space-y-4">
-                    {tasks.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => {
+                    {filteredTasksByTab.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => {
                         const attachedPhotos = task.photoIds ? photos.filter(p => task.photoIds!.includes(p.id)) : [];
-                        const dependencies = task.dependsOn ? tasks.filter(t => task.dependsOn!.includes(t.id)) : [];
                         const progress = getTaskProgress(task);
                         const valueProgress = task.totalValue ? task.totalValue * (progress / 100) : 0;
 
                         return (
-                        <div key={task.id} className="p-4 border rounded-lg hover:shadow-lg transition-shadow">
+                        <div key={task.id} className={`p-4 border rounded-lg hover:shadow-lg transition-shadow ${task.isExtraordinary ? 'border-orange-200 bg-orange-50/30' : ''}`}>
                            <div className="flex justify-between items-start">
                                 <div>
-                                    <h4 className="font-bold text-lg text-black">{task.name}</h4>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        {task.isExtraordinary && <span className="bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-orange-200 uppercase tracking-tighter">Extraordinario</span>}
+                                        <h4 className="font-bold text-lg text-black">{task.name}</h4>
+                                    </div>
                                     <p className="text-sm text-black">{task.description}</p>
-                                    <p className="text-xs text-black mt-1">Asignado a: {workers.find(w => w.id === task.assignedWorkerId)?.name || 'Sin asignar'}</p>
-                                     {dependencies.length > 0 && (
-                                        <p className="text-xs text-black mt-1">
-                                            Depende de: <span className="font-semibold">{dependencies.map(d => d.name).join(', ')}</span>
-                                        </p>
-                                     )}
+                                    <p className="text-xs text-black mt-1">Responsable: {workers.find(w => w.id === task.assignedWorkerId)?.name || 'Sin asignar'}</p>
                                 </div>
                                 <div className="text-right flex-shrink-0 ml-4">
-                                     <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task.status)}`}>{task.status}</span>
-                                    <p className="text-sm text-black mt-1">{new Date(task.startDate).toLocaleDateString()}</p>
+                                     <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task)}`}>{task.status}</span>
+                                    <p className="text-sm text-black mt-1 font-mono">{format(new Date(task.startDate), 'dd/MM/yy')} - {format(new Date(task.endDate), 'dd/MM/yy')}</p>
                                      {canEdit && (
-                                        <>
-                                            <button onClick={() => handleOpenModal(task)} className="text-sm text-black hover:text-gray-600 mt-1">Editar</button>
-                                            <button onClick={() => handleDeleteClick(task.id)} className="text-sm text-red-600 hover:text-red-800 mt-1 ml-2 font-medium">Eliminar</button>
-                                        </>
+                                        <div className="mt-2 space-x-2">
+                                            <button onClick={() => handleOpenModal(task)} className="text-xs text-blue-600 hover:underline font-semibold">Editar</button>
+                                            <button onClick={() => handleDeleteClick(task.id)} className="text-xs text-red-600 hover:underline font-semibold">Eliminar</button>
+                                        </div>
                                      )}
                                 </div>
                            </div>
                            <div className="mt-3">
                                 <div className="flex items-center">
                                     <div className="flex-grow">
-                                        <ProgressBar value={progress} color={task.status === 'Retrasado' ? 'red' : task.status === 'Completado' ? 'green' : 'blue'} />
+                                        <ProgressBar value={progress} color={task.isExtraordinary && task.status !== 'Completado' ? 'yellow' : (task.status === 'Retrasado' ? 'red' : (task.status === 'Completado' ? 'green' : 'blue'))} />
                                     </div>
                                     <span className="ml-4 w-12 text-right text-sm font-semibold text-black">{progress.toFixed(0)}%</span>
                                 </div>
                                 <div className="mt-2 flex justify-between items-baseline text-sm">
-                                    <div className="text-gray-600">
-                                        {(task.totalVolume && task.volumeUnit) ? (
-                                            <span>Avance Físico: <strong>{task.completedVolume ?? 0} / {task.totalVolume}</strong> {task.volumeUnit}</span>
-                                        ) : ( <span>&nbsp;</span> )}
+                                    <div className="text-gray-600 text-xs">
+                                        {(task.totalVolume && task.volumeUnit) && (
+                                            <span>Físico: <strong>{task.completedVolume ?? 0} / {task.totalVolume}</strong> {task.volumeUnit}</span>
+                                        )}
                                     </div>
                                     <div className="text-right">
                                         {task.totalValue && (
-                                            <p className="text-black">
-                                                <span className="font-medium">Avance Monetario:</span> 
-                                                <span className="font-bold text-green-600 ml-2">
-                                                    ${valueProgress.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </span>
-                                                <span className="text-gray-500"> / ${task.totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <p className="text-xs text-black">
+                                                <span className="font-medium">Valor:</span> 
+                                                <span className="font-bold text-green-600 ml-1">${valueProgress.toLocaleString()}</span>
+                                                <span className="text-gray-400"> / ${task.totalValue.toLocaleString()}</span>
                                             </p>
                                         )}
                                     </div>
@@ -699,132 +648,129 @@ const Planning: React.FC = () => {
                            </div>
                            {attachedPhotos.length > 0 && (
                                 <div className="mt-4">
-                                    <h5 className="text-sm font-semibold text-black mb-2">Fotos Adjuntas:</h5>
                                     <div className="flex flex-wrap gap-2">
                                         {attachedPhotos.map(photo => (
-                                            <div key={photo.id} className="relative group cursor-pointer" onClick={() => setViewingPhotoUrl(photo.url)}>
-                                                <img src={photo.url} alt={photo.description} className="h-20 w-20 object-cover rounded-md border-2 border-transparent group-hover:border-primary-500 transition-all" />
-                                                <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                                </div>
-                                            </div>
+                                            <img key={photo.id} src={photo.url} alt={photo.description} onClick={() => setViewingPhotoUrl(photo.url)} className="h-12 w-12 object-cover rounded-md border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity" />
                                         ))}
                                     </div>
                                 </div>
                             )}
                         </div>
                     )})}
+                    {filteredTasksByTab.length === 0 && (
+                        <div className="text-center py-12 bg-gray-50 rounded-lg">
+                            <p className="text-gray-500">No hay tareas para mostrar en esta sección.</p>
+                            {canEdit && <button onClick={() => handleOpenModal()} className="text-primary-600 font-semibold mt-2 hover:underline">Añadir una tarea ahora</button>}
+                        </div>
+                    )}
                 </div>
             </Card>
 
-            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditing ? 'Editar Tarea' : 'Añadir Nueva Tarea'}>
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditing ? 'Editar Tarea' : 'Nueva Tarea'}>
                 <div className="space-y-4 max-h-[80vh] overflow-y-auto p-2">
+                    <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-100 rounded-md">
+                        <input
+                            type="checkbox"
+                            id="extra-checkbox"
+                            checked={currentTask.isExtraordinary || false}
+                            onChange={e => setCurrentTask({...currentTask, isExtraordinary: e.target.checked})}
+                            className="h-4 w-4 text-orange-600 border-orange-300 rounded focus:ring-orange-500"
+                        />
+                        <label htmlFor="extra-checkbox" className="text-sm font-bold text-orange-700">MARCAR COMO TRABAJO EXTRAORDINARIO</label>
+                    </div>
+
                     <input type="text" placeholder="Nombre de la Tarea" value={currentTask.name || ''} onChange={e => {setCurrentTask({...currentTask, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     <textarea placeholder="Descripción" value={currentTask.description || ''} onChange={e => setCurrentTask({...currentTask, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={2}></textarea>
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-black block text-sm font-medium">Fecha de Inicio</label>
-                            <input type="date" value={currentTask.startDate || ''} onChange={e => {setCurrentTask({...currentTask, startDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Fecha de Inicio</label>
+                            <input type="date" value={currentTask.startDate || ''} onChange={e => {setCurrentTask({...currentTask, startDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black text-sm" />
                         </div>
                         <div>
-                            <label className="text-black block text-sm font-medium">Fecha de Fin</label>
-                            <input type="date" value={currentTask.endDate || ''} onChange={e => {setCurrentTask({...currentTask, endDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Fecha de Fin</label>
+                            <input type="date" value={currentTask.endDate || ''} onChange={e => {setCurrentTask({...currentTask, endDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black text-sm" />
                         </div>
                     </div>
 
-                    <div>
-                        <label className="text-black block text-sm font-medium">Dependencias (Tareas que deben completarse antes)</label>
-                        <div className="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50">
-                            {tasks.filter(t => t.id !== currentTask.id).map(potentialDep => (
-                                <div key={potentialDep.id} className="flex items-center">
-                                    <input
-                                        type="checkbox"
-                                        id={`dep-${potentialDep.id}`}
-                                        checked={currentTask.dependsOn?.includes(potentialDep.id) || false}
-                                        onChange={e => {
-                                            const selectedId = potentialDep.id;
-                                            const isChecked = e.target.checked;
-                                            setCurrentTask(prev => {
-                                                const currentDeps = prev.dependsOn || [];
-                                                if (isChecked) {
-                                                    return { ...prev, dependsOn: [...currentDeps, selectedId] };
-                                                } else {
-                                                    return { ...prev, dependsOn: currentDeps.filter(id => id !== selectedId) };
-                                                }
-                                            });
-                                        }}
-                                        className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                                    />
-                                    <label htmlFor={`dep-${potentialDep.id}`} className="ml-2 text-sm text-black">{potentialDep.name}</label>
-                                </div>
-                            ))}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Responsable</label>
+                            <select value={currentTask.assignedWorkerId || ''} onChange={e => setCurrentTask({...currentTask, assignedWorkerId: e.target.value})} className="w-full p-2 border rounded bg-white text-black text-sm">
+                                <option value="">Sin asignar</option>
+                                {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Estado</label>
+                            <select value={currentTask.status || 'No Iniciado'} onChange={e => setCurrentTask({...currentTask, status: e.target.value as Task['status']})} className="w-full p-2 border rounded bg-white text-black text-sm">
+                                <option>No Iniciado</option>
+                                <option>En Progreso</option>
+                                <option>Completado</option>
+                                <option>Retrasado</option>
+                            </select>
                         </div>
                     </div>
-                    
-                    <select value={currentTask.assignedWorkerId || ''} onChange={e => setCurrentTask({...currentTask, assignedWorkerId: e.target.value})} className="w-full p-2 border rounded bg-white text-black">
-                        <option value="">Asignar Trabajador</option>
-                        {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                    <select value={currentTask.status || ''} onChange={e => setCurrentTask({...currentTask, status: e.target.value as Task['status']})} className="w-full p-2 border rounded bg-white text-black">
-                        <option>No Iniciado</option><option>En Progreso</option><option>Completado</option><option>Retrasado</option>
-                    </select>
                     
                     <div className="grid grid-cols-3 gap-4">
                         <div className="col-span-2">
-                            <label className="text-black block text-sm font-medium">Volumen Total</label>
-                            <input type="number" placeholder="Ej. 100" value={currentTask.totalVolume || ''} onChange={e => setCurrentTask({...currentTask, totalVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Volumen Total</label>
+                            <input type="number" placeholder="Ej. 100" value={currentTask.totalVolume || ''} onChange={e => handleVolumeOrPriceChange('totalVolume', parseFloat(e.target.value) || 0)} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
                         </div>
                         <div>
-                            <label className="text-black block text-sm font-medium">Unidad</label>
-                            <input type="text" placeholder="Ej. m³" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Unidad</label>
+                            <input type="text" placeholder="m³, ML, etc" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
                         </div>
                     </div>
-                    <div>
-                        <label className="text-black block text-sm font-medium">Volumen de Avance</label>
-                        <input type="number" placeholder="Ej. 25" value={currentTask.completedVolume || ''} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    </div>
 
-                    <div>
-                        <label className="text-black block text-sm font-medium">Valor Total del Trabajo ($)</label>
-                        <input 
-                            type="number" 
-                            placeholder="Ej. 10000" 
-                            value={currentTask.totalValue || ''} 
-                            onChange={e => setCurrentTask({...currentTask, totalValue: parseFloat(e.target.value) || undefined})} 
-                            className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" 
-                        />
+                    <div className="grid grid-cols-3 gap-4">
+                        <div>
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Precio Unitario ($)</label>
+                            <input type="number" placeholder="Ej. 50" value={currentTask.unitPrice || ''} onChange={e => handleVolumeOrPriceChange('unitPrice', parseFloat(e.target.value) || 0)} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
+                        </div>
+                        <div>
+                            <label className="text-black block text-xs font-medium uppercase mb-1">Volumen Ejecutado</label>
+                            <input type="number" placeholder="Ej. 25" value={currentTask.completedVolume || ''} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
+                        </div>
+                        <div>
+                            <label className="text-black block text-xs font-medium uppercase mb-1 font-bold">Costo Total ($)</label>
+                            <div className="w-full p-2 border rounded bg-gray-100 text-black font-bold text-sm h-9 flex items-center">
+                                ${ (currentTask.totalValue || 0).toLocaleString() }
+                            </div>
+                        </div>
                     </div>
                     
-                    <div>
-                        <label className="text-black block text-sm font-medium">Fotos Adjuntas</label>
-                        <div className="flex items-center gap-2 mt-1">
-                            <div className="flex flex-wrap gap-2 p-2 border rounded-md flex-grow bg-gray-50 min-h-[40px]">
+                    <div className="pt-2">
+                        <label className="text-black block text-xs font-medium uppercase mb-1">Fotos Vinculadas</label>
+                        <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap gap-2 p-2 border rounded-md flex-grow bg-gray-50 min-h-[44px]">
                                 {(currentTask.photoIds || []).map(id => {
                                     const photo = photos.find(p => p.id === id);
-                                    return photo ? <img key={id} src={photo.url} alt={photo.description} className="h-10 w-10 object-cover rounded" /> : null;
+                                    return photo ? <img key={id} src={photo.url} className="h-8 w-8 object-cover rounded shadow-sm" /> : null;
                                 })}
-                                {(currentTask.photoIds || []).length === 0 && <span className="text-sm text-gray-500">Ninguna</span>}
+                                {(currentTask.photoIds || []).length === 0 && <span className="text-xs text-gray-400 py-1">Sin fotos</span>}
                             </div>
-                             <button onClick={() => setIsPhotoManagerOpen(true)} className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors font-medium text-sm">Gestionar</button>
+                             <button onClick={() => setIsPhotoManagerOpen(true)} className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 font-bold text-xs uppercase">Elegir</button>
                         </div>
                     </div>
                     
-                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
+                    {validationError && <p className="text-red-600 text-xs font-bold bg-red-50 p-2 border border-red-100 rounded">{validationError}</p>}
 
-                    <button onClick={handleSave} className="w-full mt-2 py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Tarea</button>
+                    <button onClick={handleSave} className="w-full mt-2 py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 font-bold shadow-md transition-all active:scale-95">
+                        {isEditing ? 'Actualizar Tarea' : 'Crear Tarea'}
+                    </button>
                 </div>
             </Modal>
 
-             <Modal isOpen={isPhotoManagerOpen} onClose={() => setIsPhotoManagerOpen(false)} title="Gestionar Fotos de la Tarea">
+             <Modal isOpen={isPhotoManagerOpen} onClose={() => setIsPhotoManagerOpen(false)} title="Vincular Fotos">
                 <div className="max-h-[60vh] overflow-y-auto p-1">
                     {photos.length > 0 ? (
                         <div className="grid grid-cols-3 gap-2">
                             {photos.map(photo => (
                                 <div key={photo.id} className="relative cursor-pointer" onClick={() => handlePhotoSelection(photo.id)}>
-                                    <img src={photo.url} alt={photo.description} className={`w-full h-28 object-cover rounded-md transition-all ${currentTask.photoIds?.includes(photo.id) ? 'ring-4 ring-primary-500' : 'ring-2 ring-transparent'}`} />
+                                    <img src={photo.url} alt={photo.description} className={`w-full h-28 object-cover rounded-md transition-all ${currentTask.photoIds?.includes(photo.id) ? 'ring-4 ring-primary-500 opacity-100 shadow-md' : 'opacity-60 grayscale-[50%] hover:grayscale-0'}`} />
                                     {(currentTask.photoIds?.includes(photo.id)) && (
-                                        <div className="absolute top-1 right-1 bg-primary-600 text-white rounded-full h-6 w-6 flex items-center justify-center">
+                                        <div className="absolute top-1 right-1 bg-primary-600 text-white rounded-full h-6 w-6 flex items-center justify-center shadow-lg">
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                                         </div>
                                     )}
@@ -832,11 +778,11 @@ const Planning: React.FC = () => {
                             ))}
                         </div>
                     ) : (
-                        <p className="text-center text-black py-8">No hay fotos en la bitácora del proyecto. Sube algunas fotos primero.</p>
+                        <p className="text-center text-gray-500 py-8 italic">No hay fotos en la bitácora todavía.</p>
                     )}
                 </div>
                  <div className="mt-4 flex justify-end">
-                    <button onClick={() => setIsPhotoManagerOpen(false)} className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Hecho</button>
+                    <button onClick={() => setIsPhotoManagerOpen(false)} className="px-6 py-2 bg-primary-600 text-white rounded-md font-bold">Hecho</button>
                  </div>
             </Modal>
             
@@ -844,13 +790,13 @@ const Planning: React.FC = () => {
                 isOpen={isImportModalOpen}
                 onClose={() => setIsImportModalOpen(false)}
                 onImport={handleImportTasks}
-                title="Importar Tareas desde Excel"
+                title="Importar Tareas"
                 expectedColumns={['Nombre', 'Descripción', 'Fecha Inicio', 'Fecha Fin', 'Estado']}
-                templateFileName="plantilla_tareas.xlsx"
+                templateFileName="plantilla_planificacion.xlsx"
             />
 
             {viewingPhotoUrl && (
-                 <Modal isOpen={!!viewingPhotoUrl} onClose={() => setViewingPhotoUrl(null)} title="Vista Previa de Foto">
+                 <Modal isOpen={!!viewingPhotoUrl} onClose={() => setViewingPhotoUrl(null)} title="Vista Previa">
                     <img src={viewingPhotoUrl} alt="Vista Previa" className="w-full max-h-[80vh] object-contain rounded-lg"/>
                  </Modal>
             )}
@@ -859,8 +805,8 @@ const Planning: React.FC = () => {
                 isOpen={deleteConfirmation.isOpen}
                 onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
                 onConfirm={confirmDeleteTask}
-                title="Eliminar Tarea"
-                message={`¿Estás seguro de que quieres eliminar la tarea "${deleteConfirmation.name}"? También se eliminará como dependencia de otras tareas.`}
+                title="Confirmar Eliminación"
+                message={`¿Estás seguro de que deseas eliminar "${deleteConfirmation.name}"?`}
                 confirmText="Eliminar"
                 isDangerous={true}
             />
