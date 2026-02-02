@@ -23,6 +23,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
+      - name: Pre-deployment Schema Check
+        run: |
+          echo "🔍 Checking for database schema changes..."
+          chmod +x pre-deployment-check.sh
+          ./pre-deployment-check.sh
+          echo "✅ Schema check completed"
+      
       - name: Build application
         run: npm run build
         env:
