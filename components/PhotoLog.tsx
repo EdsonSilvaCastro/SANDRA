@@ -27,6 +27,8 @@ const PhotoLog: React.FC = () => {
     const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
     const [globalTags, setGlobalTags] = useState<string[]>([]);
     const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveProgress, setSaveProgress] = useState(0);
 
     const [editingPhoto, setEditingPhoto] = useState<Partial<Photo>>({});
     const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -53,9 +55,7 @@ const PhotoLog: React.FC = () => {
         if (e.target.files && e.target.files.length > 0) {
             setIsProcessingFiles(true);
             setValidationError('');
-            // FIX: Explicitly cast the file list to File[] to prevent TypeScript from inferring elements as 'unknown'.
             const files = Array.from(e.target.files) as File[];
-            
             const newPending: PendingPhoto[] = [];
             
             for (const file of files) {
@@ -64,25 +64,21 @@ const PhotoLog: React.FC = () => {
                         const reader = new FileReader();
                         reader.onload = (event) => resolve(event.target?.result as string);
                         reader.onerror = (error) => reject(error);
-                        // FIX: By casting 'files' to 'File[]', 'file' is correctly typed as 'Blob' for readAsDataURL.
                         reader.readAsDataURL(file);
                     });
                     
                     newPending.push({
                         url: base64,
-                        // FIX: Accessing .name property is now safe as 'file' is typed as 'File'.
-                        description: file.name.split('.')[0], // Default description from filename
+                        description: file.name.split('.')[0],
                         fileName: file.name
                     });
                 } catch (err) {
-                    // FIX: Accessing .name property is now safe in catch block error log.
                     console.error("Error processing file:", file.name, err);
                 }
             }
             
             setPendingPhotos(prev => [...prev, ...newPending]);
             setIsProcessingFiles(false);
-            // Reset input so the same files can be selected again if needed
             e.target.value = '';
         }
     };
@@ -105,25 +101,32 @@ const PhotoLog: React.FC = () => {
             return;
         }
 
-        const uploadPromises = pendingPhotos.map((photo, index) => {
-            return addItem('photos', {
-                id: `photo-${Date.now()}-${index}`,
-                url: photo.url,
-                description: photo.description || `Foto ${index + 1}`,
-                tags: globalTags,
-                uploadDate: new Date().toISOString(),
-            });
-        });
+        setIsSaving(true);
+        setSaveProgress(0);
+        setValidationError('');
 
         try {
-            await Promise.all(uploadPromises);
+            // Guardamos las fotos SECUENCIALMENTE para evitar race conditions en localStorage
+            for (let i = 0; i < pendingPhotos.length; i++) {
+                const photo = pendingPhotos[i];
+                await addItem('photos', {
+                    id: `photo-${Date.now()}-${i}`,
+                    url: photo.url,
+                    description: photo.description || `Foto ${i + 1}`,
+                    tags: globalTags,
+                    uploadDate: new Date().toISOString(),
+                });
+                setSaveProgress(Math.round(((i + 1) / pendingPhotos.length) * 100));
+            }
+
             setIsUploadModalOpen(false);
             setPendingPhotos([]);
             setGlobalTags([]);
-            setValidationError('');
-        } catch (error) {
-            setValidationError('Ocurrió un error al subir algunas fotos.');
+        } catch (error: any) {
+            setValidationError(error.message || 'Ocurrió un error al guardar las fotos.');
             console.error(error);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -134,13 +137,17 @@ const PhotoLog: React.FC = () => {
             return;
         }
 
-        await updateItem('photos', editingPhoto.id, {
-            description: editingPhoto.description,
-            tags: editingPhoto.tags || [],
-            url: editingPhoto.url
-        });
-        setIsEditModalOpen(false);
-        setEditingPhoto({});
+        try {
+            await updateItem('photos', editingPhoto.id, {
+                description: editingPhoto.description,
+                tags: editingPhoto.tags || [],
+                url: editingPhoto.url
+            });
+            setIsEditModalOpen(false);
+            setEditingPhoto({});
+        } catch (e: any) {
+            setValidationError(e.message || "Error al actualizar.");
+        }
     };
 
     const handleDeleteClick = (e: React.MouseEvent, photo: Photo) => {
@@ -182,10 +189,10 @@ const PhotoLog: React.FC = () => {
                         placeholder="Buscar por descripción o etiqueta..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full md:w-64 p-2 border rounded-md"
+                        className="w-full md:w-64 p-2 border rounded-md bg-white text-black"
                     />
                     {canEdit && (
-                        <button onClick={handleOpenUploadModal} className="flex-shrink-0 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors flex items-center gap-2">
+                        <button onClick={handleOpenUploadModal} className="flex-shrink-0 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors flex items-center gap-2 shadow-sm font-bold">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                             Subir Fotos
                         </button>
@@ -234,33 +241,43 @@ const PhotoLog: React.FC = () => {
                 )}
             </Card>
 
-            {/* Modal de Subida Múltiple */}
-            <Modal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} title="Subir Fotos (Lote)">
+            <Modal isOpen={isUploadModalOpen} onClose={() => !isSaving && setIsUploadModalOpen(false)} title="Subir Fotos (Lote)">
                 <div className="space-y-5 max-h-[75vh] overflow-y-auto pr-2">
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-500 transition-colors bg-gray-50">
-                        <input 
-                            type="file" 
-                            multiple 
-                            accept="image/*" 
-                            onChange={handleFilesChange} 
-                            className="hidden" 
-                            id="batch-file-input"
-                        />
-                        <label htmlFor="batch-file-input" className="cursor-pointer flex flex-col items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            <span className="text-sm font-medium text-black">Haz clic para seleccionar varias fotos</span>
-                            <span className="text-xs text-gray-500 mt-1">Soporta PNG, JPG y JPEG</span>
-                        </label>
-                    </div>
+                    {!isSaving && (
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-500 transition-colors bg-gray-50">
+                            <input 
+                                type="file" 
+                                multiple 
+                                accept="image/*" 
+                                onChange={handleFilesChange} 
+                                className="hidden" 
+                                id="batch-file-input"
+                            />
+                            <label htmlFor="batch-file-input" className="cursor-pointer flex flex-col items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                <span className="text-sm font-medium text-black">Haz clic para seleccionar varias fotos</span>
+                                <span className="text-xs text-gray-500 mt-1">Soporta PNG, JPG y JPEG</span>
+                            </label>
+                        </div>
+                    )}
 
                     {isProcessingFiles && (
                         <div className="text-center py-2">
                             <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600 mr-2"></div>
-                            <span className="text-sm text-gray-600">Procesando imágenes...</span>
+                            <span className="text-sm text-gray-600">Procesando archivos...</span>
                         </div>
                     )}
 
-                    {pendingPhotos.length > 0 && (
+                    {isSaving && (
+                        <div className="p-4 bg-primary-50 rounded-lg border border-primary-100 text-center">
+                            <p className="text-primary-800 font-bold mb-2">Guardando en la bitácora... {saveProgress}%</p>
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div className="bg-primary-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${saveProgress}%` }}></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {pendingPhotos.length > 0 && !isSaving && (
                         <div className="space-y-4">
                             <div className="bg-primary-50 p-3 rounded-md">
                                 <label className="block text-sm font-semibold text-primary-900 mb-1">Etiquetas Globales (para todas estas fotos)</label>
@@ -269,7 +286,7 @@ const PhotoLog: React.FC = () => {
                                     placeholder="Ej: Cimentación, Area A, Inspección..." 
                                     value={globalTags.join(', ')}
                                     onChange={e => setGlobalTags(e.target.value.split(',').map(t=>t.trim()).filter(t=>t))}
-                                    className="w-full p-2 border rounded-md bg-white text-sm"
+                                    className="w-full p-2 border rounded-md bg-white text-sm text-black"
                                 />
                             </div>
 
@@ -283,7 +300,7 @@ const PhotoLog: React.FC = () => {
                                                 type="text" 
                                                 value={p.description} 
                                                 onChange={e => updatePendingDescription(idx, e.target.value)}
-                                                className="w-full text-sm p-1 border-b focus:border-primary-500 outline-none"
+                                                className="w-full text-sm p-1 border-b focus:border-primary-500 outline-none text-black"
                                                 placeholder="Descripción de esta foto..."
                                             />
                                             <span className="text-[10px] text-gray-400 truncate block mt-1">{p.fileName}</span>
@@ -300,20 +317,26 @@ const PhotoLog: React.FC = () => {
                         </div>
                     )}
 
-                    {validationError && <p className="text-red-600 text-sm font-medium">{validationError}</p>}
+                    {validationError && (
+                        <div className="p-3 bg-red-100 border border-red-200 text-red-700 rounded-md text-sm font-medium">
+                            {validationError}
+                        </div>
+                    )}
                     
-                    <button 
-                        onClick={handleSavePhotosBatch} 
-                        disabled={pendingPhotos.length === 0 || isProcessingFiles}
-                        className="w-full py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors font-bold disabled:bg-gray-400 shadow-md"
-                    >
-                        Subir {pendingPhotos.length} {pendingPhotos.length === 1 ? 'Foto' : 'Fotos'}
-                    </button>
+                    {!isSaving && (
+                        <button 
+                            onClick={handleSavePhotosBatch} 
+                            disabled={pendingPhotos.length === 0 || isProcessingFiles}
+                            className="w-full py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors font-bold disabled:bg-gray-400 shadow-md flex justify-center items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            Subir {pendingPhotos.length} {pendingPhotos.length === 1 ? 'Foto' : 'Fotos'}
+                        </button>
+                    )}
                 </div>
             </Modal>
 
-            {/* Modal de Edición Individual */}
-            <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Editar Detalles de Foto">
+            <Modal isOpen={isEditModalOpen} onClose={() => !isSaving && setIsEditModalOpen(false)} title="Editar Detalles de Foto">
                 <div className="space-y-4">
                     <img src={editingPhoto.url} alt="Edit preview" className="max-h-64 rounded-md mx-auto object-contain border" />
                     <div>
@@ -324,12 +347,13 @@ const PhotoLog: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Etiquetas (separadas por coma)</label>
                         <input type="text" placeholder="Etiquetas" value={editingPhoto.tags?.join(', ') || ''} onChange={e => setEditingPhoto({...editingPhoto, tags: e.target.value.split(',').map(t=>t.trim()).filter(t=>t)})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
                     </div>
-                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
-                    <button onClick={handleUpdatePhoto} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors font-semibold shadow-md">Actualizar Cambios</button>
+                    {validationError && <p className="text-red-600 text-sm font-bold bg-red-50 p-2 rounded">{validationError}</p>}
+                    <button onClick={handleUpdatePhoto} disabled={isSaving} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors font-semibold shadow-md disabled:bg-gray-400">
+                        {isSaving ? 'Actualizando...' : 'Actualizar Cambios'}
+                    </button>
                 </div>
             </Modal>
 
-            {/* Modal de Vista Detallada */}
             {selectedPhoto && (
                  <Modal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} title="Detalles de la Foto">
                     <img src={selectedPhoto.url} alt={selectedPhoto.description} className="w-full max-h-[60vh] object-contain rounded-lg mb-4 bg-gray-900 shadow-inner"/>

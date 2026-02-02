@@ -11,7 +11,6 @@ export interface Project {
   collaboratorIds?: string[];
 }
 
-// Helpers for Data Mapping
 const toSnakeCase = (str: string) => str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 const toCamelCase = (str: string) => str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
 
@@ -39,7 +38,6 @@ const mapKeysToCamel = (obj: any): any => {
     return obj;
 };
 
-// Helper for ID generation in Offline Mode
 const generateId = (prefix: string) => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return `${prefix}-${crypto.randomUUID()}`;
@@ -68,22 +66,16 @@ interface ProjectContextType {
   createProject: (name: string, pin?: string) => Promise<void>;
   updateProject: (id: string, data: Partial<Omit<Project, 'id' | 'ownerId'>>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  shareProject: (projectId: string, email: string) => Promise<void>; // New function
+  shareProject: (projectId: string, email: string) => Promise<void>;
   isReady: boolean;
   unlockedProjects: Record<string, boolean>;
   unlockProject: (id: string) => void;
   currentUser: User;
-  
-  // Data Access
   projectData: ProjectData;
   loadingData: boolean;
-  
-  // Generic CRUD
   addItem: (resource: keyof ProjectData, item: any) => Promise<void>;
   updateItem: (resource: keyof ProjectData, id: string, item: any) => Promise<void>;
   deleteItem: (resource: keyof ProjectData, id: string) => Promise<void>;
-  
-  // User Management (Global)
   allUsers: User[];
   addUser: (user: User) => Promise<void>;
   updateUser: (id: string, user: Partial<User>) => Promise<void>;
@@ -118,7 +110,6 @@ const INITIAL_DATA: ProjectData = {
     interactions: []
 };
 
-// Storage Keys Constants
 const STORAGE_KEYS = {
     PROJECTS: 'constructpro_allProjects',
     USERS: 'constructpro_users',
@@ -128,9 +119,7 @@ const STORAGE_KEYS = {
 const formatError = (error: any): string => {
     if (!error) return 'Unknown error';
     if (error instanceof Error) return error.message;
-    if (typeof error === 'object') {
-        return error.message || JSON.stringify(error);
-    }
+    if (typeof error === 'object') return error.message || JSON.stringify(error);
     return String(error);
 };
 
@@ -139,153 +128,86 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [unlockedProjects, setUnlockedProjects] = useState<Record<string, boolean>>({});
-  
   const [projectData, setProjectData] = useState<ProjectData>(INITIAL_DATA);
   const [loadingData, setLoadingData] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-  // 1. Initialize Application (Load Projects & Users)
   useEffect(() => {
     const init = async () => {
-        // --- OFFLINE / LOCAL STORAGE MODE ---
         if (!isConfigured) {
-            console.log("Modo Offline: Cargando datos desde LocalStorage");
             try {
-                // Load Projects
                 const localProjects = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-                if (localProjects) {
-                    setAllProjects(JSON.parse(localProjects));
-                }
-
-                // Load Users
+                if (localProjects) setAllProjects(JSON.parse(localProjects));
                 const localUsers = localStorage.getItem(STORAGE_KEYS.USERS);
                 if (localUsers) {
                     setAllUsers(JSON.parse(localUsers));
-                } else {
-                    // Initialize default admin if no users exist locally
-                    if (currentUser.email === 'admin@constructpro.com') {
-                        setAllUsers([currentUser]);
-                        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([currentUser]));
-                    }
+                } else if (currentUser.email === 'admin@constructpro.com') {
+                    setAllUsers([currentUser]);
+                    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([currentUser]));
                 }
-            } catch (e) {
-                console.error("Error loading local data:", e);
-            }
+            } catch (e) { console.error("Error loading local data:", e); }
             setIsReady(true);
             return;
         }
-
-        // --- SUPABASE MODE ---
         try {
-            const { data: projectsData, error: projError } = await supabase.from('projects').select('*');
-            if (projError) throw projError;
-            if (projectsData) {
-                setAllProjects(mapKeysToCamel(projectsData));
-            }
-
-            const { data: usersData, error: usersError } = await supabase.from('users').select('*');
-            if (usersError) throw usersError;
-            if (usersData) {
-                setAllUsers(mapKeysToCamel(usersData));
-            }
-        } catch (err: any) {
-            console.error('Initialization error (Supabase):', formatError(err));
-            // Fallback to empty state on error to avoid crashing
-        } finally {
-            setIsReady(true);
-        }
+            const { data: projectsData } = await supabase.from('projects').select('*');
+            if (projectsData) setAllProjects(mapKeysToCamel(projectsData));
+            const { data: usersData } = await supabase.from('users').select('*');
+            if (usersData) setAllUsers(mapKeysToCamel(usersData));
+        } catch (err) { console.error('Initialization error (Supabase):', err); }
+        finally { setIsReady(true); }
     };
     init();
   }, [currentUser]);
 
-  // 2. Determine Active Project
   useEffect(() => {
     if (!isReady) return;
-    
-    // Filter logic including Shared Projects
     let projectsForCurrentUser = allProjects;
     if (currentUser.role !== 'admin' && currentUser.role !== 'viewer') {
-         projectsForCurrentUser = allProjects.filter(p => 
-            p.ownerId === currentUser.id || 
-            (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id))
-         );
+         projectsForCurrentUser = allProjects.filter(p => p.ownerId === currentUser.id || (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id)));
     }
-    
     if (projectsForCurrentUser.length > 0 && !activeProjectId) {
         const storedId = localStorage.getItem(`constructpro_lastActive_${currentUser.id}`);
-        if (storedId && projectsForCurrentUser.some(p => p.id === storedId)) {
-            setActiveProjectId(storedId);
-        } else {
-            setActiveProjectId(projectsForCurrentUser[0].id);
-        }
-    } else if (projectsForCurrentUser.length === 0) {
-        setActiveProjectId(null);
-    }
+        if (storedId && projectsForCurrentUser.some(p => p.id === storedId)) setActiveProjectId(storedId);
+        else setActiveProjectId(projectsForCurrentUser[0].id);
+    } else if (projectsForCurrentUser.length === 0) setActiveProjectId(null);
   }, [isReady, allProjects, currentUser, activeProjectId]);
 
-  // 3. Fetch Data for Active Project
   useEffect(() => {
     if (!activeProjectId) {
         setProjectData(INITIAL_DATA);
         return;
     }
-
     const fetchProjectData = async () => {
         setLoadingData(true);
-        
-        // --- OFFLINE MODE ---
         if (!isConfigured) {
             const newData: any = { ...INITIAL_DATA };
             Object.keys(TABLE_MAP).forEach((key) => {
                 const storageKey = `${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${key}`;
                 const storedItem = localStorage.getItem(storageKey);
                 if (storedItem) {
-                    try {
-                        newData[key] = JSON.parse(storedItem);
-                    } catch (e) {
-                        console.error(`Error parsing local data for ${key}`, e);
-                    }
+                    try { newData[key] = JSON.parse(storedItem); } catch (e) { console.error(`Error parsing local data for ${key}`, e); }
                 }
             });
             setProjectData(newData);
             setLoadingData(false);
             return;
         }
-
-        // --- SUPABASE MODE ---
         try {
             const promises = Object.entries(TABLE_MAP).map(async ([key, table]) => {
-                const { data, error } = await supabase
-                    .from(table)
-                    .select('*')
-                    .eq('project_id', activeProjectId);
-                
-                if (error) {
-                    console.error(`Error fetching ${table}:`, formatError(error));
-                    return [key, []];
-                }
+                const { data, error } = await supabase.from(table).select('*').eq('project_id', activeProjectId);
+                if (error) return [key, []];
                 return [key, mapKeysToCamel(data)];
             });
-
             const results = await Promise.all(promises);
             const newData: any = { ...INITIAL_DATA };
-            results.forEach(([key, data]) => {
-                newData[key] = data;
-            });
+            results.forEach(([key, data]) => { newData[key] = data; });
             setProjectData(newData);
-
-        } catch (error: any) {
-            console.error("Error fetching project data:", formatError(error));
-        } finally {
-            setLoadingData(false);
-        }
+        } catch (error) { console.error("Error fetching project data:", error); }
+        finally { setLoadingData(false); }
     };
-
     fetchProjectData();
   }, [activeProjectId]);
-
-
-  // --- ACTIONS ---
 
   const switchProject = (id: string) => {
     setActiveProjectId(id);
@@ -293,345 +215,171 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   };
 
   const createProject = async (name: string, pin?: string) => {
-    const newProject: Project = {
-        id: isConfigured ? `proj-${Date.now()}` : generateId('proj'),
-        name,
-        pin,
-        ownerId: currentUser.id,
-        collaboratorIds: [] // Init with empty collaborators
-    };
-
-    // --- OFFLINE MODE ---
+    const newProject: Project = { id: isConfigured ? `proj-${Date.now()}` : generateId('proj'), name, pin, ownerId: currentUser.id, collaboratorIds: [] };
     if (!isConfigured) {
-        try {
-            const updatedProjects = [...allProjects, newProject];
-            setAllProjects(updatedProjects);
-            localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
-            switchProject(newProject.id);
-            return;
-        } catch (e) {
-            console.error("Error creating project locally:", e);
-            throw new Error("No se pudo guardar el proyecto localmente.");
-        }
+        const updatedProjects = [...allProjects, newProject];
+        setAllProjects(updatedProjects);
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
+        switchProject(newProject.id);
+        return;
     }
-
-    // --- SUPABASE MODE ---
-    try {
-        const dbProject = {
-            name,
-            pin,
-            owner_id: currentUser.id,
-            collaborator_ids: []
-        };
-        const { data, error } = await supabase.from('projects').insert(dbProject).select().single();
-        
-        if (error) throw error;
-        
-        if (data) {
-            const createdProject = mapKeysToCamel(data);
-            setAllProjects(prev => [...prev, createdProject]);
-            switchProject(createdProject.id);
-        }
-    } catch (error: any) {
-        console.error("Error creating project:", formatError(error));
-        throw new Error(error.message || "Failed to create project");
+    const { data, error } = await supabase.from('projects').insert({ name, pin, owner_id: currentUser.id, collaborator_ids: [] }).select().single();
+    if (error) throw error;
+    if (data) {
+        const createdProject = mapKeysToCamel(data);
+        setAllProjects(prev => [...prev, createdProject]);
+        switchProject(createdProject.id);
     }
   };
 
   const updateProject = async (id: string, data: Partial<Omit<Project, 'id' | 'ownerId'>>) => {
-    // --- OFFLINE MODE ---
     if (!isConfigured) {
         const updatedProjects = allProjects.map(p => p.id === id ? { ...p, ...data } : p);
         setAllProjects(updatedProjects);
         localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
         return;
     }
-
-    // --- SUPABASE MODE ---
-    try {
-        const dbData = mapKeysToSnake(data);
-        const { error } = await supabase.from('projects').update(dbData).eq('id', id);
-        if (error) throw error;
-        setAllProjects(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
-    } catch (error: any) {
-        console.error("Error updating project:", formatError(error));
-        throw error;
-    }
+    const { error } = await supabase.from('projects').update(mapKeysToSnake(data)).eq('id', id);
+    if (error) throw error;
+    setAllProjects(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
   };
 
   const deleteProject = async (id: string) => {
-    // --- OFFLINE MODE ---
     if (!isConfigured) {
-        const updatedProjects = allProjects.filter(p => p.id !== id);
-        setAllProjects(updatedProjects);
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
-        
-        // Cleanup project data
-        Object.keys(TABLE_MAP).forEach(key => {
-             localStorage.removeItem(`${STORAGE_KEYS.DATA_PREFIX}${id}_${key}`);
-        });
-
-        if (activeProjectId === id) {
-            setActiveProjectId(null);
-        }
+        setAllProjects(prev => prev.filter(p => p.id !== id));
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects.filter(p => p.id !== id)));
+        Object.keys(TABLE_MAP).forEach(key => localStorage.removeItem(`${STORAGE_KEYS.DATA_PREFIX}${id}_${key}`));
+        if (activeProjectId === id) setActiveProjectId(null);
         return;
     }
-
-    // --- SUPABASE MODE ---
-    try {
-        const { error } = await supabase.from('projects').delete().eq('id', id);
-        if (error) throw error;
-        
-        setAllProjects(prev => prev.filter(p => p.id !== id));
-        if (activeProjectId === id) {
-            setActiveProjectId(null);
-        }
-    } catch (error: any) {
-         console.error("Error deleting project:", formatError(error));
-         throw error;
-    }
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+    if (error) throw error;
+    setAllProjects(prev => prev.filter(p => p.id !== id));
+    if (activeProjectId === id) setActiveProjectId(null);
   };
 
   const shareProject = async (projectId: string, email: string) => {
     const userToShare = allUsers.find(u => u.email === email);
-    if (!userToShare) {
-        throw new Error("No se encontró ningún usuario con ese correo electrónico.");
-    }
-    
-    if (userToShare.id === currentUser.id) {
-         throw new Error("No puedes compartir el proyecto contigo mismo.");
-    }
-
+    if (!userToShare) throw new Error("No se encontró ningún usuario con ese correo.");
     const projectToShare = allProjects.find(p => p.id === projectId);
     if (!projectToShare) throw new Error("Proyecto no encontrado");
-
     const currentCollaborators = projectToShare.collaboratorIds || [];
-    if (currentCollaborators.includes(userToShare.id)) {
-        throw new Error("Este usuario ya es colaborador en este proyecto.");
-    }
-
-    const updatedCollaborators = [...currentCollaborators, userToShare.id];
-    
-    // Use existing update logic which handles local vs supabase
-    await updateProject(projectId, { collaboratorIds: updatedCollaborators });
+    if (currentCollaborators.includes(userToShare.id)) throw new Error("El usuario ya es colaborador.");
+    await updateProject(projectId, { collaboratorIds: [...currentCollaborators, userToShare.id] });
   };
 
-  const unlockProject = (id: string) => {
-    setUnlockedProjects(prev => ({...prev, [id]: true}));
-  };
-
-  // --- Generic CRUD for Project Data ---
+  const unlockProject = (id: string) => setUnlockedProjects(prev => ({...prev, [id]: true}));
 
   const addItem = async (resource: keyof ProjectData, item: any) => {
       if (!activeProjectId) return;
-
       const itemWithId = { ...item, id: item.id || generateId(resource.slice(0, 3)) };
-
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
-          setProjectData(prev => {
-              const newList = [...prev[resource], itemWithId];
-              const newState = { ...prev, [resource]: newList };
-              // Persist
-              localStorage.setItem(`${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`, JSON.stringify(newList));
-              return newState;
-          });
+          try {
+              // Obtenemos la versión más reciente del almacenamiento para evitar race conditions
+              const storageKey = `${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`;
+              const currentListJson = localStorage.getItem(storageKey);
+              const currentList = currentListJson ? JSON.parse(currentListJson) : [];
+              const newList = [...currentList, itemWithId];
+              
+              localStorage.setItem(storageKey, JSON.stringify(newList));
+              setProjectData(prev => ({ ...prev, [resource]: newList }));
+          } catch (e: any) {
+              if (e.name === 'QuotaExceededError') {
+                  throw new Error("El almacenamiento del navegador está lleno. No se pueden guardar más fotos/datos pesados.");
+              }
+              throw e;
+          }
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const itemWithProject = { ...itemWithId, project_id: activeProjectId };
-          const dbItem = mapKeysToSnake(itemWithProject);
-          
-          const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
-          
-          if (error) throw error;
-          
-          setProjectData(prev => ({
-              ...prev,
-              [resource]: [...prev[resource], itemWithId]
-          }));
-      } catch (error: any) {
-          console.error(`Error adding to ${resource}:`, formatError(error));
-          throw error;
-      }
+      const dbItem = mapKeysToSnake({ ...itemWithId, project_id: activeProjectId });
+      const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
+      if (error) throw error;
+      setProjectData(prev => ({ ...prev, [resource]: [...prev[resource], itemWithId] }));
   };
 
   const updateItem = async (resource: keyof ProjectData, id: string, item: any) => {
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
-           if (!activeProjectId) return;
-           setProjectData(prev => {
-              const newList = prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i);
-              const newState = { ...prev, [resource]: newList };
-              // Persist
-              localStorage.setItem(`${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`, JSON.stringify(newList));
-              return newState;
-          });
+          if (!activeProjectId) return;
+          const storageKey = `${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`;
+          const currentListJson = localStorage.getItem(storageKey);
+          const currentList = currentListJson ? JSON.parse(currentListJson) : [];
+          const newList = currentList.map((i: any) => i.id === id ? { ...i, ...item } : i);
+          localStorage.setItem(storageKey, JSON.stringify(newList));
+          setProjectData(prev => ({ ...prev, [resource]: newList }));
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const dbItem = mapKeysToSnake(item);
-          delete dbItem.project_id; 
-          delete dbItem.id; // Usually don't update ID
-          
-          const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
-          
-          if (error) throw error;
-          
-          setProjectData(prev => ({
-              ...prev,
-              [resource]: prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i)
-          }));
-      } catch (error: any) {
-          console.error(`Error updating ${resource}:`, formatError(error));
-          throw error;
-      }
+      const dbItem = mapKeysToSnake(item);
+      delete dbItem.id;
+      const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
+      if (error) throw error;
+      setProjectData(prev => ({ ...prev, [resource]: prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i) }));
   };
 
   const deleteItem = async (resource: keyof ProjectData, id: string) => {
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
           if (!activeProjectId) return;
-          setProjectData(prev => {
-              const newList = prev[resource].filter((i: any) => i.id !== id);
-              const newState = { ...prev, [resource]: newList };
-              // Persist
-              localStorage.setItem(`${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`, JSON.stringify(newList));
-              return newState;
-          });
+          const storageKey = `${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`;
+          const currentListJson = localStorage.getItem(storageKey);
+          const currentList = currentListJson ? JSON.parse(currentListJson) : [];
+          const newList = currentList.filter((i: any) => i.id !== id);
+          localStorage.setItem(storageKey, JSON.stringify(newList));
+          setProjectData(prev => ({ ...prev, [resource]: newList }));
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const { error } = await supabase.from(TABLE_MAP[resource]).delete().eq('id', id);
-          
-          if (error) throw error;
-          
-          setProjectData(prev => ({
-              ...prev,
-              [resource]: prev[resource].filter((i: any) => i.id !== id)
-          }));
-      } catch (error: any) {
-          console.error(`Error deleting from ${resource}:`, formatError(error));
-          throw error;
-      }
+      const { error } = await supabase.from(TABLE_MAP[resource]).delete().eq('id', id);
+      if (error) throw error;
+      setProjectData(prev => ({ ...prev, [resource]: prev[resource].filter((i: any) => i.id !== id) }));
   };
 
-  // --- User Management ---
   const addUser = async (user: User) => {
       const newUser = { ...user, id: user.id || generateId('user') };
-
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
           const updatedUsers = [...allUsers, newUser];
           setAllUsers(updatedUsers);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const dbUser = mapKeysToSnake(newUser);
-          const { error } = await supabase.from('users').insert(dbUser);
-          if (error) throw error;
-          setAllUsers(prev => [...prev, newUser]);
-      } catch (error: any) {
-          console.error("Error adding user:", formatError(error));
-          throw error;
-      }
+      const { error } = await supabase.from('users').insert(mapKeysToSnake(newUser));
+      if (error) throw error;
+      setAllUsers(prev => [...prev, newUser]);
   };
 
   const updateUser = async (id: string, user: Partial<User>) => {
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
           const updatedUsers = allUsers.map(u => u.id === id ? { ...u, ...user } : u);
           setAllUsers(updatedUsers);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const dbUser = mapKeysToSnake(user);
-          const { error } = await supabase.from('users').update(dbUser).eq('id', id);
-          if (error) throw error;
-          setAllUsers(prev => prev.map(u => u.id === id ? { ...u, ...user } : u));
-      } catch (error: any) {
-          console.error("Error updating user:", formatError(error));
-          throw error;
-      }
+      const { error } = await supabase.from('users').update(mapKeysToSnake(user)).eq('id', id);
+      if (error) throw error;
+      setAllUsers(prev => prev.map(u => u.id === id ? { ...u, ...user } : u));
   };
 
   const deleteUser = async (id: string) => {
-      // --- OFFLINE MODE ---
       if (!isConfigured) {
           const updatedUsers = allUsers.filter(u => u.id !== id);
           setAllUsers(updatedUsers);
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
           return;
       }
-
-      // --- SUPABASE MODE ---
-      try {
-          const { error } = await supabase.from('users').delete().eq('id', id);
-          if (error) throw error;
-          setAllUsers(prev => prev.filter(u => u.id !== id));
-      } catch (error: any) {
-           console.error("Error deleting user:", formatError(error));
-           throw error;
-      }
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      setAllUsers(prev => prev.filter(u => u.id !== id));
   };
 
   const activeProject = allProjects.find(p => p.id === activeProjectId) || null;
-  
   let visibleProjects = allProjects;
   if (currentUser.role !== 'admin' && currentUser.role !== 'viewer') {
-      visibleProjects = allProjects.filter(p => 
-        p.ownerId === currentUser.id || 
-        (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id))
-      );
+      visibleProjects = allProjects.filter(p => p.ownerId === currentUser.id || (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id)));
   }
 
-  const value = { 
-      projects: visibleProjects, 
-      activeProjectId, 
-      activeProject, 
-      switchProject, 
-      createProject, 
-      updateProject, 
-      deleteProject, 
-      shareProject,
-      isReady, 
-      unlockedProjects, 
-      unlockProject, 
-      currentUser,
-      projectData,
-      loadingData,
-      addItem,
-      updateItem,
-      deleteItem,
-      allUsers,
-      addUser,
-      updateUser,
-      deleteUser
-  };
-
-  return (
-    <ProjectContext.Provider value={value}>
-      {children}
-    </ProjectContext.Provider>
-  );
+  const value = { projects: visibleProjects, activeProjectId, activeProject, switchProject, createProject, updateProject, deleteProject, shareProject, isReady, unlockedProjects, unlockProject, currentUser, projectData, loadingData, addItem, updateItem, deleteItem, allUsers, addUser, updateUser, deleteUser };
+  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 };
 
 export const useProject = (): ProjectContextType => {
   const context = useContext(ProjectContext);
-  if (context === undefined) {
-    throw new Error('useProject must be used within a ProjectProvider');
-  }
+  if (context === undefined) throw new Error('useProject must be used within a ProjectProvider');
   return context;
 };
