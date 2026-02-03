@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { Task, Worker, Photo } from '../types';
+import { Task, Worker, Photo, Material, TaskMaterial } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
@@ -10,8 +10,9 @@ import { useProject } from '../contexts/ProjectContext';
 import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-
 type TimeScale = 'day' | 'week' | 'month';
+type TaskModalTab = 'general' | 'labor' | 'materials';
+type MainViewTab = 'cronograma' | 'destajos' | 'materiales';
 
 const GanttChart: React.FC<{ 
     tasks: Task[]; 
@@ -20,7 +21,6 @@ const GanttChart: React.FC<{
 }> = ({ tasks, onUpdateTask, canEdit }) => {
     const ganttContainerRef = useRef<HTMLDivElement>(null);
     const [timeScale, setTimeScale] = useState<TimeScale>('day');
-    const [taskPositions, setTaskPositions] = useState<Record<string, { top: number, height: number }>>({});
     const [isDownloading, setIsDownloading] = useState(false);
     
     const [dragInfo, setDragInfo] = useState<{
@@ -78,41 +78,13 @@ const GanttChart: React.FC<{
         return units * columnWidth;
     }, [overallStartDate, timeScale, columnWidth]);
 
-    const getTaskProgress = useCallback((task: Task) => {
-        if (task.totalVolume && task.totalVolume > 0) {
-            return Math.min(100, ((task.completedVolume || 0) / task.totalVolume) * 100);
-        }
-        if (task.status === 'Completado') return 100;
-        return 0;
-    }, []);
-
-    const projectStartDate = overallStartDate.getTime();
-
-    useEffect(() => {
-        if (!ganttContainerRef.current) return;
-        const newPositions: Record<string, { top: number, height: number }> = {};
-        const taskElements = ganttContainerRef.current.querySelectorAll('.gantt-task-row');
-        taskElements.forEach((el) => {
-            const taskId = el.getAttribute('data-task-id');
-            if (taskId) {
-                newPositions[taskId] = { top: (el as HTMLElement).offsetTop, height: el.getBoundingClientRect().height };
-            }
-        });
-        setTaskPositions(newPositions);
-    }, [sortedTasks]);
-
     const handleDownload = async () => {
         const element = document.getElementById('gantt-chart-view');
         if (!element) return;
-
         setIsDownloading(true);
         try {
-            const canvas = await (window as any).html2canvas(element, {
-                backgroundColor: '#ffffff',
-                scale: 2 
-            });
+            const canvas = await (window as any).html2canvas(element, { backgroundColor: '#ffffff', scale: 2 });
             const dataUrl = canvas.toDataURL('image/png');
-            
             const link = document.createElement('a');
             link.href = dataUrl;
             link.download = 'cronograma_proyecto.png';
@@ -121,7 +93,6 @@ const GanttChart: React.FC<{
             document.body.removeChild(link);
         } catch (error) {
             console.error('Error al descargar la gráfica:', error);
-            alert('Ocurrió un error al intentar descargar la gráfica.');
         } finally {
             setIsDownloading(false);
         }
@@ -143,26 +114,25 @@ const GanttChart: React.FC<{
 
     const handleMouseMove = useCallback((e: MouseEvent) => {
         if (!dragInfo) return;
-
         const deltaX = e.clientX - dragInfo.initialMouseX;
         let newStartDate = new Date(dragInfo.initialStartDate);
         let newEndDate = new Date(dragInfo.initialEndDate);
+        const dayFactor = columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44);
 
         if (dragInfo.action === 'move') {
-            const daysChanged = deltaX / (columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44));
+            const daysChanged = deltaX / dayFactor;
             newStartDate = addDays(dragInfo.initialStartDate, daysChanged);
             newEndDate = addDays(dragInfo.initialEndDate, daysChanged);
         } else if (dragInfo.action === 'resize-end') {
-            const daysChanged = deltaX / (columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44));
+            const daysChanged = deltaX / dayFactor;
             newEndDate = addDays(dragInfo.initialEndDate, daysChanged);
             if (newEndDate < newStartDate) newEndDate = newStartDate;
         } else if (dragInfo.action === 'resize-start') {
-            const daysChanged = deltaX / (columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44));
+            const daysChanged = deltaX / dayFactor;
             newStartDate = addDays(dragInfo.initialStartDate, daysChanged);
             if (newStartDate > newEndDate) newStartDate = newEndDate;
         }
         
-        // @ts-ignore
         setTooltip({
             x: e.clientX + 15,
             y: e.clientY,
@@ -174,46 +144,24 @@ const GanttChart: React.FC<{
             taskBar.style.left = `${dateToPixel(newStartDate)}px`;
             taskBar.style.width = `${dateToPixel(newEndDate) - dateToPixel(newStartDate)}px`;
         }
-
     }, [dragInfo, dateToPixel, columnWidth, timeScale]);
 
     const handleMouseUp = useCallback((e: MouseEvent) => {
         if (!dragInfo) return;
-
         document.body.style.cursor = 'default';
         const deltaX = e.clientX - dragInfo.initialMouseX;
         let newStartDate = new Date(dragInfo.initialStartDate);
         let newEndDate = new Date(dragInfo.initialEndDate);
-
-        const daysChanged = deltaX / (columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44));
+        const dayFactor = columnWidth / (timeScale === 'day' ? 1 : timeScale === 'week' ? 7 : 30.44);
+        const daysChanged = deltaX / dayFactor;
 
         if (dragInfo.action === 'move') {
             newStartDate = addDays(dragInfo.initialStartDate, daysChanged);
             newEndDate = addDays(dragInfo.initialEndDate, daysChanged);
         } else if (dragInfo.action === 'resize-end') {
             newEndDate = addDays(dragInfo.initialEndDate, daysChanged);
-            if (newEndDate < newStartDate) newEndDate = newStartDate;
         } else if (dragInfo.action === 'resize-start') {
             newStartDate = addDays(dragInfo.initialStartDate, daysChanged);
-            if (newStartDate > newEndDate) newStartDate = newEndDate;
-        }
-        
-        // --- Dependency Validation ---
-        if (dragInfo.task.dependsOn && dragInfo.task.dependsOn.length > 0) {
-            for (const depId of dragInfo.task.dependsOn) {
-                const depTask = tasks.find(t => t.id === depId);
-                if (depTask && newStartDate < new Date(depTask.endDate)) {
-                    alert(`Conflicto de dependencia: La tarea "${dragInfo.task.name}" no puede empezar antes de que termine "${depTask.name}".`);
-                    const taskBar = ganttContainerRef.current?.querySelector(`[data-bar-id="${dragInfo.task.id}"]`) as HTMLElement;
-                    if (taskBar) {
-                        taskBar.style.left = `${dateToPixel(dragInfo.initialStartDate)}px`;
-                        taskBar.style.width = `${dateToPixel(dragInfo.initialEndDate) - dateToPixel(dragInfo.initialStartDate)}px`;
-                    }
-                    setDragInfo(null);
-                    setTooltip(null);
-                    return;
-                }
-            }
         }
 
         const updatedTask = { 
@@ -225,7 +173,7 @@ const GanttChart: React.FC<{
         onUpdateTask(updatedTask);
         setDragInfo(null);
         setTooltip(null);
-    }, [dragInfo, onUpdateTask, tasks, dateToPixel, columnWidth, timeScale]);
+    }, [dragInfo, onUpdateTask, columnWidth, timeScale]);
 
     useEffect(() => {
         if (dragInfo) {
@@ -240,33 +188,18 @@ const GanttChart: React.FC<{
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [dragInfo, handleMouseMove, handleMouseUp]);
-    
-    const getHeaderLabel = (date: Date) => {
-        switch (timeScale) {
-            case 'day': return <><span className="text-black">{date.getDate()}</span><span className="block text-gray-500">{date.toLocaleDateString('es-ES', { month: 'short' })}</span></>;
-            case 'week': return <span className="text-black text-[10px]">Semana {format(date, 'w')}</span>;
-            case 'month': return <span className="text-black">{date.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</span>;
-        }
-    };
-    
-    const today = new Date();
-    const todayOffset = dateToPixel(today);
 
     return (
         <Card>
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold text-black">Diagrama de Gantt</h3>
                 <div className="flex flex-wrap gap-2 items-center">
-                    <button
-                        onClick={handleDownload}
-                        disabled={isDownloading}
-                        className="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center gap-1"
-                    >
+                    <button onClick={handleDownload} disabled={isDownloading} className="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 transition-colors">
                         {isDownloading ? '...' : 'Descargar'}
                     </button>
                     <div className="flex gap-1 p-1 bg-gray-200 rounded-md">
                         {(['day', 'week', 'month'] as TimeScale[]).map(scale => (
-                            <button key={scale} onClick={() => setTimeScale(scale)} className={`px-3 py-1 text-sm rounded-md transition-colors ${timeScale === scale ? 'bg-white text-primary-600 shadow' : 'bg-transparent text-black'}`}>
+                            <button key={scale} onClick={() => setTimeScale(scale)} className={`px-3 py-1 text-sm rounded-md ${timeScale === scale ? 'bg-white text-primary-600 shadow' : 'bg-transparent text-black'}`}>
                                 {scale === 'day' ? 'Día' : scale === 'week' ? 'Semana' : 'Mes'}
                             </button>
                         ))}
@@ -279,15 +212,14 @@ const GanttChart: React.FC<{
                         <div className="w-[150px] flex-shrink-0 border-r border-b p-2 font-semibold text-sm text-black sticky left-0 bg-gray-50">Tarea</div>
                         {gridDates.map((date, i) => (
                             <div key={i} className="border-r border-b text-center text-xs p-1 flex-shrink-0" style={{ width: columnWidth }}>
-                                {getHeaderLabel(date)}
+                                {timeScale === 'day' ? <>{date.getDate()}<br/><span className="text-gray-400">{date.toLocaleDateString('es', {month:'short'})}</span></> : format(date, 'w')}
                             </div>
                         ))}
                     </div>
                     <div className="relative">
                         {sortedTasks.map((task, index) => (
-                             <div key={task.id} data-task-id={task.id} className="gantt-task-row flex items-center border-b" style={{ height: 40 }}>
+                             <div key={task.id} className="flex items-center border-b" style={{ height: 40 }}>
                                 <div className="w-[150px] flex-shrink-0 p-2 text-sm font-medium truncate text-black sticky left-0 bg-white border-r z-10 h-full flex items-center">
-                                    {task.isExtraordinary && <span className="w-2 h-2 rounded-full bg-orange-500 mr-2 flex-shrink-0" title="Extraordinario"></span>}
                                     {task.name}
                                 </div>
                              </div>
@@ -295,59 +227,24 @@ const GanttChart: React.FC<{
                         {sortedTasks.map((task, index) => {
                             const startPixel = dateToPixel(new Date(task.startDate));
                             const endPixel = dateToPixel(new Date(task.endDate));
-                            let width = endPixel - startPixel + (timeScale === 'day' ? columnWidth : 0);
-                            if (width < 0) width = 0;
-
-                            const progress = getTaskProgress(task);
-                            let statusColor = task.status === 'Completado' ? 'bg-green-500' : task.status === 'En Progreso' ? 'bg-blue-500' : task.status === 'Retrasado' ? 'bg-red-500' : 'bg-gray-400';
+                            let width = Math.max(0, endPixel - startPixel + (timeScale === 'day' ? columnWidth : 0));
+                            const progress = (task.totalVolume && task.totalVolume > 0) ? Math.min(100, (task.completedVolume || 0) / task.totalVolume * 100) : (task.status === 'Completado' ? 100 : 0);
                             
-                            // Highlight extraordinary tasks with orange tone if not completed
-                            if (task.isExtraordinary && task.status !== 'Completado') {
-                                statusColor = 'bg-orange-500';
-                            }
-
                             return (
-                                <div
-                                    key={task.id}
-                                    data-bar-id={task.id}
-                                    className={`absolute h-8 top-0 rounded-md group flex items-center ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
-                                    style={{ top: index * 40 + 6, left: 150 + startPixel, width }}
-                                    onMouseDown={(e) => canEdit && handleMouseDown(e, task, 'move')}
-                                >
-                                    <div className={`absolute left-0 top-0 h-full w-full rounded-md ${task.isExtraordinary ? 'bg-orange-100' : 'bg-gray-200'} border ${task.isExtraordinary ? 'border-orange-300' : 'border-gray-300'}`}></div>
-                                    <div 
-                                        className={`absolute left-0 top-0 h-full rounded-l-md ${progress >= 100 ? 'rounded-r-md' : ''} ${statusColor}`} 
-                                        style={{ width: `${progress}%`, transition: 'width 0.3s ease' }}
-                                    ></div>
-                                    <span className="relative text-xs px-2 truncate z-10 pointer-events-none font-semibold text-gray-800">
-                                        {task.name} <span className="text-[10px] font-normal opacity-90">({progress.toFixed(0)}%)</span>
-                                    </span>
-                                    {canEdit && (
-                                        <>
-                                            <div className="absolute left-0 top-0 h-full w-2 cursor-ew-resize z-20" onMouseDown={(e) => handleMouseDown(e, task, 'resize-start')} />
-                                            <div className="absolute right-0 top-0 h-full w-2 cursor-ew-resize z-20" onMouseDown={(e) => handleMouseDown(e, task, 'resize-end')} />
-                                        </>
-                                    )}
+                                <div key={task.id} data-bar-id={task.id} className="absolute h-8 top-0 rounded-md group flex items-center cursor-pointer" style={{ top: index * 40 + 6, left: 150 + startPixel, width }} onMouseDown={(e) => handleMouseDown(e, task, 'move')}>
+                                    <div className="absolute left-0 top-0 h-full w-full rounded-md bg-gray-200 border border-gray-300"></div>
+                                    <div className={`absolute left-0 top-0 h-full rounded-l-md ${progress >= 100 ? 'rounded-r-md' : ''} ${task.status === 'Completado' ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }}></div>
+                                    <span className="relative text-[10px] px-1 truncate z-10 pointer-events-none font-bold text-gray-800">{task.name}</span>
                                 </div>
                             );
                         })}
-                        {todayOffset > 0 && today > overallStartDate && today < overallEndDate && (
-                            <div className="absolute top-0 bottom-0 border-r-2 border-red-500 z-20 pointer-events-none" style={{ left: 150 + todayOffset }}>
-                                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs px-1 rounded-sm">Hoy</div>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
-            {tooltip && (
-                <div className="fixed p-2 bg-black text-white text-xs rounded-md pointer-events-none z-50" style={{ top: tooltip.y, left: tooltip.x, transform: 'translateY(-100%)' }}>
-                    {tooltip.text}
-                </div>
-            )}
+            {tooltip && <div className="fixed p-2 bg-black text-white text-xs rounded-md pointer-events-none z-50" style={{ top: tooltip.y, left: tooltip.x, transform: 'translateY(-100%)' }}>{tooltip.text}</div>}
         </Card>
     );
 };
-
 
 const Planning: React.FC = () => {
     const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
@@ -355,55 +252,38 @@ const Planning: React.FC = () => {
 
     const tasks = projectData.tasks;
     const workers = projectData.workers;
+    const materials = projectData.materials;
     const photos = projectData.photos;
     
+    const [mainViewTab, setMainViewTab] = useState<MainViewTab>('cronograma');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<TaskModalTab>('general');
     const [currentTask, setCurrentTask] = useState<Partial<Task>>({});
     const [isEditing, setIsEditing] = useState(false);
-    const [isPhotoManagerOpen, setIsPhotoManagerOpen] = useState(false);
-    const [viewingPhotoUrl, setViewingPhotoUrl] = useState<string | null>(null);
+    
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
     const [validationError, setValidationError] = useState<string>('');
-    const [activeTab, setActiveTab] = useState<'all' | 'base' | 'extraordinary'>('all');
-    
-    // Import Modal State
-    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [listFilter, setListFilter] = useState<'all' | 'base' | 'extraordinary'>('all');
 
     const filteredTasksByTab = useMemo(() => {
-        if (activeTab === 'base') return tasks.filter(t => !t.isExtraordinary);
-        if (activeTab === 'extraordinary') return tasks.filter(t => t.isExtraordinary);
-        return tasks;
-    }, [tasks, activeTab]);
-
-    const extraordinaryStats = useMemo(() => {
-        const extra = tasks.filter(t => t.isExtraordinary);
-        return {
-            count: extra.length,
-            totalValue: extra.reduce((sum, t) => sum + (t.totalValue || 0), 0),
-            completedValue: extra.reduce((sum, t) => {
-                const prog = (t.totalVolume && t.totalVolume > 0) ? (t.completedVolume || 0) / t.totalVolume : (t.status === 'Completado' ? 1 : 0);
-                return sum + ((t.totalValue || 0) * prog);
-            }, 0)
-        };
-    }, [tasks]);
-
-    // Función para manejar cambios en Volumen o Precio y recalcular el Total
-    const handleVolumeOrPriceChange = (field: 'totalVolume' | 'unitPrice', value: number) => {
-        setCurrentTask(prev => {
-            const next = { ...prev, [field]: value };
-            const vol = field === 'totalVolume' ? value : (prev.totalVolume || 0);
-            const price = field === 'unitPrice' ? value : (prev.unitPrice || 0);
-            next.totalValue = vol * price;
-            return next;
-        });
-        setValidationError('');
-    };
+        let baseTasks = tasks;
+        if (listFilter === 'base') baseTasks = tasks.filter(t => !t.isExtraordinary);
+        if (listFilter === 'extraordinary') baseTasks = tasks.filter(t => t.isExtraordinary);
+        return baseTasks;
+    }, [tasks, listFilter]);
 
     const handleOpenModal = (task?: Task, forceExtraordinary: boolean = false) => {
         if (!canEdit) return;
         setValidationError('');
+        setActiveTab('general');
         if (task) {
-            setCurrentTask({ ...task, photoIds: task.photoIds || [], dependsOn: task.dependsOn || [] });
+            setCurrentTask({ 
+                ...task, 
+                photoIds: task.photoIds || [], 
+                dependsOn: task.dependsOn || [],
+                materialAssignments: task.materialAssignments || []
+            });
             setIsEditing(true);
         } else {
             setCurrentTask({ 
@@ -411,10 +291,11 @@ const Planning: React.FC = () => {
                 startDate: new Date().toISOString().split('T')[0], 
                 photoIds: [], 
                 dependsOn: [],
+                materialAssignments: [],
                 totalVolume: 0,
                 unitPrice: 0,
                 totalValue: 0,
-                isExtraordinary: forceExtraordinary || activeTab === 'extraordinary'
+                isExtraordinary: forceExtraordinary
             });
             setIsEditing(false);
         }
@@ -424,27 +305,12 @@ const Planning: React.FC = () => {
     const handleSave = async () => {
         if (!canEdit) return;
         if (!currentTask.name || !currentTask.startDate || !currentTask.endDate) {
-            setValidationError('Nombre de tarea y fechas de inicio/fin son obligatorios.');
+            setValidationError('Nombre de tarea y fechas son obligatorios.');
             return;
         }
 
         const taskToSave: Partial<Task> = { ...currentTask };
-    
-        if (typeof taskToSave.totalVolume === 'number' && taskToSave.totalVolume > 0) {
-            const completedVolume = taskToSave.completedVolume || 0;
-            const totalVolume = taskToSave.totalVolume;
-            if (completedVolume >= totalVolume) {
-                if (taskToSave.status !== 'Completado') taskToSave.status = 'Completado';
-            } else if (completedVolume > 0) {
-                if (taskToSave.status === 'No Iniciado' || taskToSave.status === 'Completado') taskToSave.status = 'En Progreso';
-            }
-        }
-        
-        if (taskToSave.status === 'Completado') {
-            if (!taskToSave.completionDate) taskToSave.completionDate = new Date().toISOString().split('T')[0];
-        } else {
-            taskToSave.completionDate = undefined;
-        }
+        taskToSave.totalValue = (taskToSave.totalVolume || 0) * (taskToSave.unitPrice || 0);
     
         if (isEditing && taskToSave.id) {
             await updateItem('tasks', taskToSave.id, taskToSave);
@@ -452,84 +318,42 @@ const Planning: React.FC = () => {
             await addItem('tasks', { ...taskToSave, id: `tsk-${Date.now()}` });
         }
         setIsModalOpen(false);
-        setValidationError('');
     };
 
-    const handleDeleteClick = (taskId: string) => {
-        if (!canEdit) return;
-        const taskToDelete = tasks.find(t => t.id === taskId);
-        if (taskToDelete) {
-            setDeleteConfirmation({ isOpen: true, id: taskId, name: taskToDelete.name });
+    const handleAddMaterial = (materialId: string) => {
+        if (!materialId) return;
+        const assignments = [...(currentTask.materialAssignments || [])];
+        if (!assignments.find(a => a.materialId === materialId)) {
+            assignments.push({ materialId, quantity: 1 });
+            setCurrentTask(prev => ({ ...prev, materialAssignments: assignments }));
         }
     };
 
-    const confirmDeleteTask = async () => {
-        if (!canEdit) return;
-        const taskId = deleteConfirmation.id;
-        if (taskId) await deleteItem('tasks', taskId);
-        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
-    };
-    
-    const getStatusColor = (task: Task) => {
-        if (task.isExtraordinary && task.status !== 'Completado') return 'bg-orange-500';
-        switch (task.status) {
-            case 'Completado': return 'bg-green-500';
-            case 'En Progreso': return 'bg-blue-500';
-            case 'Retrasado': return 'bg-red-500';
-            case 'No Iniciado': return 'bg-gray-500';
-            default: return 'bg-gray-500';
-        }
-    };
-    
-    const getTaskProgress = (task: Task) => {
-        if (task.totalVolume && task.totalVolume > 0) {
-            return Math.min(100, ((task.completedVolume || 0) / task.totalVolume) * 100);
-        }
-        if (task.status === 'Completado') return 100;
-        return 0;
+    const handleUpdateMaterialQty = (materialId: string, qty: number) => {
+        const assignments = (currentTask.materialAssignments || []).map(a => 
+            a.materialId === materialId ? { ...a, quantity: qty } : a
+        );
+        setCurrentTask(prev => ({ ...prev, materialAssignments: assignments }));
     };
 
-    const handlePhotoSelection = (photoId: string) => {
-        if (!canEdit) return;
-        setCurrentTask(prev => {
-            const currentPhotoIds = prev.photoIds || [];
-            if (currentPhotoIds.includes(photoId)) {
-                return { ...prev, photoIds: currentPhotoIds.filter(id => id !== photoId) };
-            } else {
-                return { ...prev, photoIds: [...currentPhotoIds, photoId] };
-            }
-        });
+    const handleRemoveMaterial = (materialId: string) => {
+        const assignments = (currentTask.materialAssignments || []).filter(a => a.materialId !== materialId);
+        setCurrentTask(prev => ({ ...prev, materialAssignments: assignments }));
     };
 
     const handleImportTasks = async (data: any[]) => {
         let count = 0;
         for (const row of data) {
-            const parseDate = (val: any) => {
-                if (!val) return new Date().toISOString().split('T')[0];
-                if (typeof val === 'number') {
-                    const date = new Date((val - (25567 + 2)) * 86400 * 1000);
-                    return date.toISOString().split('T')[0];
-                }
-                try {
-                    const date = new Date(val);
-                    if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
-                } catch(e) {}
-                return new Date().toISOString().split('T')[0];
-            };
-
             const newTask: Partial<Task> = {
                 name: row['Nombre'],
                 description: row['Descripción'] || '',
-                startDate: parseDate(row['Fecha Inicio']),
-                endDate: parseDate(row['Fecha Fin']),
+                startDate: row['Fecha Inicio'],
+                endDate: row['Fecha Fin'],
                 status: row['Estado'] || 'No Iniciado',
-                totalVolume: Number(row['Volumen Total']) || undefined,
-                unitPrice: Number(row['Precio Unitario']) || undefined,
-                volumeUnit: row['Unidad'] || undefined,
-                totalValue: (Number(row['Volumen Total']) * Number(row['Precio Unitario'])) || Number(row['Costo']) || undefined,
+                totalVolume: Number(row['Volumen Total']) || 0,
+                unitPrice: Number(row['Precio Unitario']) || 0,
                 isExtraordinary: row['Extraordinario']?.toString().toLowerCase() === 'si'
             };
-
             if (newTask.name) {
                 await addItem('tasks', { ...newTask, id: `tsk-imp-${Date.now()}-${count}` });
                 count++;
@@ -537,276 +361,340 @@ const Planning: React.FC = () => {
         }
     };
 
+    const renderLaborControl = () => (
+        <Card className="mt-4">
+            <h3 className="text-xl font-bold text-black mb-4">Panel Consolidado de Destajos</h3>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                    <thead>
+                        <tr className="bg-gray-100 border-b">
+                            <th className="p-3">Actividad</th>
+                            <th className="p-3">Trabajador</th>
+                            <th className="p-3 text-center">Volumen Total</th>
+                            <th className="p-3 text-center">Ejecutado</th>
+                            <th className="p-3 text-right">Precio Unit.</th>
+                            <th className="p-3 text-right">Valor Ejecutado</th>
+                            <th className="p-3 text-right">Valor Pendiente</th>
+                            <th className="p-3 text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredTasksByTab.map(task => {
+                            const worker = workers.find(w => w.id === task.assignedWorkerId);
+                            const totalVal = (task.totalVolume || 0) * (task.unitPrice || 0);
+                            const execVal = (task.completedVolume || 0) * (task.unitPrice || 0);
+                            const pendVal = totalVal - execVal;
+                            
+                            return (
+                                <tr key={task.id} className="border-b hover:bg-gray-50 transition-colors">
+                                    <td className="p-3 font-semibold">{task.name}</td>
+                                    <td className="p-3">{worker?.name || '---'}</td>
+                                    <td className="p-3 text-center">{task.totalVolume || 0} {task.volumeUnit}</td>
+                                    <td className="p-3 text-center font-bold text-blue-600">{task.completedVolume || 0} {task.volumeUnit}</td>
+                                    <td className="p-3 text-right">${(task.unitPrice || 0).toLocaleString()}</td>
+                                    <td className="p-3 text-right font-black text-green-700">${execVal.toLocaleString()}</td>
+                                    <td className="p-3 text-right text-gray-400">${pendVal.toLocaleString()}</td>
+                                    <td className="p-3 text-center">
+                                        <button onClick={() => handleOpenModal(task)} className="text-primary-600 hover:underline">Gestionar</button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </Card>
+    );
+
+    const renderMaterialControl = () => (
+        <Card className="mt-4">
+            <h3 className="text-xl font-bold text-black mb-4">Insumos Requeridos por Planificación</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredTasksByTab.filter(t => t.materialAssignments && t.materialAssignments.length > 0).map(task => (
+                    <div key={task.id} className="p-4 border rounded-lg bg-gray-50">
+                        <h4 className="font-bold border-b pb-2 mb-3 text-primary-800">{task.name}</h4>
+                        <ul className="space-y-2">
+                            {task.materialAssignments?.map(assignment => {
+                                const mat = materials.find(m => m.id === assignment.materialId);
+                                const isShort = mat && mat.quantity < assignment.quantity;
+                                return (
+                                    <li key={assignment.materialId} className="flex justify-between text-sm items-center">
+                                        <span className="text-gray-700">{mat?.name || '---'}</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`font-bold ${isShort ? 'text-red-600' : 'text-black'}`}>
+                                                {assignment.quantity} {mat?.unit}
+                                            </span>
+                                            {isShort && <span title="Stock insuficiente en inventario" className="text-red-500">⚠️</span>}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                ))}
+                {filteredTasksByTab.every(t => !t.materialAssignments || t.materialAssignments.length === 0) && (
+                    <div className="col-span-full py-12 text-center text-gray-400">
+                        No hay materiales asignados a las tareas actuales.
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
+
     return (
         <div>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div>
-                    <h2 className="text-3xl font-semibold text-black">Planificación</h2>
-                    <p className="text-sm text-gray-500">Gestión del cronograma y trabajos extraordinarios</p>
+                    <h2 className="text-3xl font-semibold text-black">Planificación Estratégica</h2>
+                    <p className="text-sm text-gray-500">Control maestro de obra, destajos y suministros por actividad</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex gap-2">
                     {canEdit && (
                         <>
-                            <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 text-sm">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                Importar
-                            </button>
-                            <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors text-sm">
-                                Añadir Tarea
-                            </button>
-                            <button onClick={() => handleOpenModal(undefined, true)} className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors text-sm font-semibold">
-                                + Trabajo Extraordinario
-                            </button>
+                            <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm">Importar</button>
+                            <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 text-sm">Nueva Tarea</button>
+                            <button onClick={() => handleOpenModal(undefined, true)} className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm font-bold">Extraordinario</button>
                         </>
                     )}
                 </div>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <Card>
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Trabajos Extraordinarios</p>
-                    <p className="text-2xl font-bold text-black">{extraordinaryStats.count} <span className="text-sm font-normal text-gray-400">tareas</span></p>
-                </Card>
-                <Card>
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Presupuesto Extraordinario</p>
-                    <p className="text-2xl font-bold text-orange-600">${extraordinaryStats.totalValue.toLocaleString()}</p>
-                </Card>
-                <Card>
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Ejecutado Extraordinario</p>
-                    <p className="text-2xl font-bold text-green-600">${extraordinaryStats.completedValue.toLocaleString()}</p>
-                </Card>
-            </div>
 
-            <div className="mb-6">
-                <GanttChart tasks={tasks} onUpdateTask={(t) => updateItem('tasks', t.id, t)} canEdit={canEdit} />
-            </div>
-
-            <div className="flex border-b border-gray-200 mb-6 no-print overflow-x-auto">
-                <button onClick={() => setActiveTab('all')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'all' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    Todas las Tareas
+            {/* Main Tabs Navigation */}
+            <div className="flex gap-4 border-b border-gray-200 mb-6 bg-white p-2 rounded-t-lg no-print">
+                <button 
+                    onClick={() => setMainViewTab('cronograma')} 
+                    className={`flex items-center gap-2 px-6 py-2 rounded-md font-bold transition-all ${mainViewTab === 'cronograma' ? 'bg-primary-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    Cronograma
                 </button>
-                <button onClick={() => setActiveTab('base')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'base' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    Cronograma Base
+                <button 
+                    onClick={() => setMainViewTab('destajos')} 
+                    className={`flex items-center gap-2 px-6 py-2 rounded-md font-bold transition-all ${mainViewTab === 'destajos' ? 'bg-primary-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    Control de Destajos
                 </button>
-                <button onClick={() => setActiveTab('extraordinary')} className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 whitespace-nowrap ${activeTab === 'extraordinary' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    Trabajos Extraordinarios
+                <button 
+                    onClick={() => setMainViewTab('materiales')} 
+                    className={`flex items-center gap-2 px-6 py-2 rounded-md font-bold transition-all ${mainViewTab === 'materiales' ? 'bg-primary-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                    Materiales Planificados
                 </button>
             </div>
 
-            <Card title={activeTab === 'extraordinary' ? 'Detalle de Trabajos Extraordinarios' : 'Lista de Tareas'}>
-                <div className="space-y-4">
-                    {filteredTasksByTab.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => {
-                        const attachedPhotos = task.photoIds ? photos.filter(p => task.photoIds!.includes(p.id)) : [];
-                        const progress = getTaskProgress(task);
-                        const valueProgress = task.totalValue ? task.totalValue * (progress / 100) : 0;
+            {mainViewTab === 'cronograma' && (
+                <>
+                    <GanttChart tasks={tasks} onUpdateTask={(t) => updateItem('tasks', t.id, t)} canEdit={canEdit} />
 
-                        return (
-                        <div key={task.id} className={`p-4 border rounded-lg hover:shadow-lg transition-shadow ${task.isExtraordinary ? 'border-orange-200 bg-orange-50/30' : ''}`}>
-                           <div className="flex justify-between items-start">
+                    <div className="flex border-b border-gray-200 my-6 no-print overflow-x-auto">
+                        <button onClick={() => setListFilter('all')} className={`px-6 py-3 font-medium text-sm border-b-2 ${listFilter === 'all' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500'}`}>Todas</button>
+                        <button onClick={() => setListFilter('base')} className={`px-6 py-3 font-medium text-sm border-b-2 ${listFilter === 'base' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500'}`}>Cronograma Base</button>
+                        <button onClick={() => setListFilter('extraordinary')} className={`px-6 py-3 font-medium text-sm border-b-2 ${listFilter === 'extraordinary' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500'}`}>Extraordinarios</button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                        {filteredTasksByTab.sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map(task => {
+                            const progress = (task.totalVolume && task.totalVolume > 0) ? Math.min(100, (task.completedVolume || 0) / task.totalVolume * 100) : (task.status === 'Completado' ? 100 : 0);
+                            const worker = workers.find(w => w.id === task.assignedWorkerId);
+                            const matCount = task.materialAssignments?.length || 0;
+
+                            return (
+                                <Card key={task.id} className={`${task.isExtraordinary ? 'border-l-4 border-orange-500' : ''}`}>
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <h4 className="font-bold text-lg text-black">{task.name}</h4>
+                                                <span className={`px-2 py-0.5 text-[10px] rounded font-bold uppercase ${task.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{task.status}</span>
+                                            </div>
+                                            <p className="text-sm text-gray-600 line-clamp-1 mb-2">{task.description}</p>
+                                            
+                                            <div className="flex flex-wrap gap-4 text-xs">
+                                                <div className="flex items-center gap-1 text-gray-500">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                                    {worker?.name || 'Sin trabajador'}
+                                                </div>
+                                                <div className="flex items-center gap-1 text-gray-500">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                                                    {matCount} materiales vinculados
+                                                </div>
+                                                <div className="font-bold text-primary-600">
+                                                    ${((task.totalValue || 0) * (progress / 100)).toLocaleString()} / ${ (task.totalValue || 0).toLocaleString() } Producido
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right flex-shrink-0 ml-4">
+                                            <button onClick={() => handleOpenModal(task)} className="p-2 text-gray-400 hover:text-primary-600 transition-colors">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 flex items-center gap-4">
+                                        <div className="flex-grow"><ProgressBar value={progress} color={task.status === 'Completado' ? 'green' : 'blue'} /></div>
+                                        <span className="text-xs font-bold text-black">{progress.toFixed(0)}%</span>
+                                    </div>
+                                </Card>
+                            );
+                        })}
+                    </div>
+                </>
+            )}
+
+            {mainViewTab === 'destajos' && renderLaborControl()}
+            {mainViewTab === 'materiales' && renderMaterialControl()}
+
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={`${isEditing ? 'Editar' : 'Nueva'} Tarea ${currentTask.isExtraordinary ? '(Extraordinaria)' : ''}`}>
+                <div className="space-y-6 max-h-[85vh] overflow-y-auto">
+                    <div className="flex gap-2 border-b bg-gray-50 -mx-6 px-6 no-print">
+                        <button onClick={() => setActiveTab('general')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeTab === 'general' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>General</button>
+                        <button onClick={() => setActiveTab('labor')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeTab === 'labor' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>Mano de Obra</button>
+                        <button onClick={() => setActiveTab('materials')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeTab === 'materials' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>Materiales</button>
+                    </div>
+
+                    {activeTab === 'general' && (
+                        <div className="space-y-4">
+                            <input type="text" placeholder="Nombre de la Tarea" value={currentTask.name || ''} onChange={e => setCurrentTask({...currentTask, name: e.target.value})} className="w-full p-2 border rounded bg-white text-black font-bold" />
+                            <textarea placeholder="Descripción detallada" value={currentTask.description || ''} onChange={e => setCurrentTask({...currentTask, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black" rows={3}></textarea>
+                            <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        {task.isExtraordinary && <span className="bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-orange-200 uppercase tracking-tighter">Extraordinario</span>}
-                                        <h4 className="font-bold text-lg text-black">{task.name}</h4>
-                                    </div>
-                                    <p className="text-sm text-black">{task.description}</p>
-                                    <p className="text-xs text-black mt-1">Responsable: {workers.find(w => w.id === task.assignedWorkerId)?.name || 'Sin asignar'}</p>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Inicio</label>
+                                    <input type="date" value={currentTask.startDate || ''} onChange={e => setCurrentTask({...currentTask, startDate: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
                                 </div>
-                                <div className="text-right flex-shrink-0 ml-4">
-                                     <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${getStatusColor(task)}`}>{task.status}</span>
-                                    <p className="text-sm text-black mt-1 font-mono">{format(new Date(task.startDate), 'dd/MM/yy')} - {format(new Date(task.endDate), 'dd/MM/yy')}</p>
-                                     {canEdit && (
-                                        <div className="mt-2 space-x-2">
-                                            <button onClick={() => handleOpenModal(task)} className="text-xs text-blue-600 hover:underline font-semibold">Editar</button>
-                                            <button onClick={() => handleDeleteClick(task.id)} className="text-xs text-red-600 hover:underline font-semibold">Eliminar</button>
-                                        </div>
-                                     )}
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Fin Estimado</label>
+                                    <input type="date" value={currentTask.endDate || ''} onChange={e => setCurrentTask({...currentTask, endDate: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
                                 </div>
-                           </div>
-                           <div className="mt-3">
-                                <div className="flex items-center">
-                                    <div className="flex-grow">
-                                        <ProgressBar value={progress} color={task.isExtraordinary && task.status !== 'Completado' ? 'yellow' : (task.status === 'Retrasado' ? 'red' : (task.status === 'Completado' ? 'green' : 'blue'))} />
-                                    </div>
-                                    <span className="ml-4 w-12 text-right text-sm font-semibold text-black">{progress.toFixed(0)}%</span>
-                                </div>
-                                <div className="mt-2 flex justify-between items-baseline text-sm">
-                                    <div className="text-gray-600 text-xs">
-                                        {(task.totalVolume && task.volumeUnit) && (
-                                            <span>Físico: <strong>{task.completedVolume ?? 0} / {task.totalVolume}</strong> {task.volumeUnit}</span>
-                                        )}
-                                    </div>
-                                    <div className="text-right">
-                                        {task.totalValue && (
-                                            <p className="text-xs text-black">
-                                                <span className="font-medium">Valor:</span> 
-                                                <span className="font-bold text-green-600 ml-1">${valueProgress.toLocaleString()}</span>
-                                                <span className="text-gray-400"> / ${task.totalValue.toLocaleString()}</span>
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                           </div>
-                           {attachedPhotos.length > 0 && (
-                                <div className="mt-4">
-                                    <div className="flex flex-wrap gap-2">
-                                        {attachedPhotos.map(photo => (
-                                            <img key={photo.id} src={photo.url} alt={photo.description} onClick={() => setViewingPhotoUrl(photo.url)} className="h-12 w-12 object-cover rounded-md border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity" />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )})}
-                    {filteredTasksByTab.length === 0 && (
-                        <div className="text-center py-12 bg-gray-50 rounded-lg">
-                            <p className="text-gray-500">No hay tareas para mostrar en esta sección.</p>
-                            {canEdit && <button onClick={() => handleOpenModal()} className="text-primary-600 font-semibold mt-2 hover:underline">Añadir una tarea ahora</button>}
-                        </div>
-                    )}
-                </div>
-            </Card>
-
-            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditing ? 'Editar Tarea' : 'Nueva Tarea'}>
-                <div className="space-y-4 max-h-[80vh] overflow-y-auto p-2">
-                    <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-100 rounded-md">
-                        <input
-                            type="checkbox"
-                            id="extra-checkbox"
-                            checked={currentTask.isExtraordinary || false}
-                            onChange={e => setCurrentTask({...currentTask, isExtraordinary: e.target.checked})}
-                            className="h-4 w-4 text-orange-600 border-orange-300 rounded focus:ring-orange-500"
-                        />
-                        <label htmlFor="extra-checkbox" className="text-sm font-bold text-orange-700">MARCAR COMO TRABAJO EXTRAORDINARIO</label>
-                    </div>
-
-                    <input type="text" placeholder="Nombre de la Tarea" value={currentTask.name || ''} onChange={e => {setCurrentTask({...currentTask, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <textarea placeholder="Descripción" value={currentTask.description || ''} onChange={e => setCurrentTask({...currentTask, description: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" rows={2}></textarea>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Fecha de Inicio</label>
-                            <input type="date" value={currentTask.startDate || ''} onChange={e => {setCurrentTask({...currentTask, startDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black text-sm" />
-                        </div>
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Fecha de Fin</label>
-                            <input type="date" value={currentTask.endDate || ''} onChange={e => {setCurrentTask({...currentTask, endDate: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black text-sm" />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Responsable</label>
-                            <select value={currentTask.assignedWorkerId || ''} onChange={e => setCurrentTask({...currentTask, assignedWorkerId: e.target.value})} className="w-full p-2 border rounded bg-white text-black text-sm">
-                                <option value="">Sin asignar</option>
-                                {workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Estado</label>
-                            <select value={currentTask.status || 'No Iniciado'} onChange={e => setCurrentTask({...currentTask, status: e.target.value as Task['status']})} className="w-full p-2 border rounded bg-white text-black text-sm">
-                                <option>No Iniciado</option>
-                                <option>En Progreso</option>
-                                <option>Completado</option>
-                                <option>Retrasado</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="col-span-2">
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Volumen Total</label>
-                            <input type="number" placeholder="Ej. 100" value={currentTask.totalVolume || ''} onChange={e => handleVolumeOrPriceChange('totalVolume', parseFloat(e.target.value) || 0)} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
-                        </div>
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Unidad</label>
-                            <input type="text" placeholder="m³, ML, etc" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Precio Unitario ($)</label>
-                            <input type="number" placeholder="Ej. 50" value={currentTask.unitPrice || ''} onChange={e => handleVolumeOrPriceChange('unitPrice', parseFloat(e.target.value) || 0)} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
-                        </div>
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1">Volumen Ejecutado</label>
-                            <input type="number" placeholder="Ej. 25" value={currentTask.completedVolume || ''} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || undefined})} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500 text-sm" />
-                        </div>
-                        <div>
-                            <label className="text-black block text-xs font-medium uppercase mb-1 font-bold">Costo Total ($)</label>
-                            <div className="w-full p-2 border rounded bg-gray-100 text-black font-bold text-sm h-9 flex items-center">
-                                ${ (currentTask.totalValue || 0).toLocaleString() }
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Estado de Obra</label>
+                                <select value={currentTask.status || 'No Iniciado'} onChange={e => setCurrentTask({...currentTask, status: e.target.value as Task['status']})} className="w-full p-2 border rounded bg-white text-black">
+                                    <option>No Iniciado</option>
+                                    <option>En Progreso</option>
+                                    <option>Completado</option>
+                                    <option>Retrasado</option>
+                                </select>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div className="pt-2">
-                        <label className="text-black block text-xs font-medium uppercase mb-1">Fotos Vinculadas</label>
-                        <div className="flex items-center gap-2">
-                            <div className="flex flex-wrap gap-2 p-2 border rounded-md flex-grow bg-gray-50 min-h-[44px]">
-                                {(currentTask.photoIds || []).map(id => {
-                                    const photo = photos.find(p => p.id === id);
-                                    return photo ? <img key={id} src={photo.url} className="h-8 w-8 object-cover rounded shadow-sm" /> : null;
-                                })}
-                                {(currentTask.photoIds || []).length === 0 && <span className="text-xs text-gray-400 py-1">Sin fotos</span>}
-                            </div>
-                             <button onClick={() => setIsPhotoManagerOpen(true)} className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 font-bold text-xs uppercase">Elegir</button>
-                        </div>
-                    </div>
-                    
-                    {validationError && <p className="text-red-600 text-xs font-bold bg-red-50 p-2 border border-red-100 rounded">{validationError}</p>}
-
-                    <button onClick={handleSave} className="w-full mt-2 py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 font-bold shadow-md transition-all active:scale-95">
-                        {isEditing ? 'Actualizar Tarea' : 'Crear Tarea'}
-                    </button>
-                </div>
-            </Modal>
-
-             <Modal isOpen={isPhotoManagerOpen} onClose={() => setIsPhotoManagerOpen(false)} title="Vincular Fotos">
-                <div className="max-h-[60vh] overflow-y-auto p-1">
-                    {photos.length > 0 ? (
-                        <div className="grid grid-cols-3 gap-2">
-                            {photos.map(photo => (
-                                <div key={photo.id} className="relative cursor-pointer" onClick={() => handlePhotoSelection(photo.id)}>
-                                    <img src={photo.url} alt={photo.description} className={`w-full h-28 object-cover rounded-md transition-all ${currentTask.photoIds?.includes(photo.id) ? 'ring-4 ring-primary-500 opacity-100 shadow-md' : 'opacity-60 grayscale-[50%] hover:grayscale-0'}`} />
-                                    {(currentTask.photoIds?.includes(photo.id)) && (
-                                        <div className="absolute top-1 right-1 bg-primary-600 text-white rounded-full h-6 w-6 flex items-center justify-center shadow-lg">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-center text-gray-500 py-8 italic">No hay fotos en la bitácora todavía.</p>
                     )}
+
+                    {activeTab === 'labor' && (
+                        <div className="space-y-4">
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
+                                <h5 className="text-sm font-bold text-blue-800 mb-2">Cálculo de Destajo</h5>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-blue-400 uppercase">Responsable</label>
+                                        <select value={currentTask.assignedWorkerId || ''} onChange={e => setCurrentTask({...currentTask, assignedWorkerId: e.target.value})} className="w-full p-2 border rounded bg-white text-black">
+                                            <option value="">Seleccionar Trabajador</option>
+                                            {workers.map(w => <option key={w.id} value={w.id}>{w.name} ({w.role})</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-blue-400 uppercase">Unidad de Medida</label>
+                                        <input type="text" placeholder="m², m³, pz, etc" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded bg-white text-black" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Volumen Total</label>
+                                    <input type="number" value={currentTask.totalVolume || 0} onChange={e => setCurrentTask({...currentTask, totalVolume: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black font-bold" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Ejecutado</label>
+                                    <input type="number" value={currentTask.completedVolume || 0} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black font-bold text-blue-600" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Precio Unit. ($)</label>
+                                    <input type="number" value={currentTask.unitPrice || 0} onChange={e => setCurrentTask({...currentTask, unitPrice: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded bg-white text-black font-bold" />
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-gray-100 rounded-lg flex justify-between items-center border-2 border-primary-100">
+                                <div>
+                                    <p className="text-[10px] font-bold text-gray-500 uppercase">Inversión Total Destajo</p>
+                                    <p className="text-2xl font-black text-black">${((currentTask.totalVolume || 0) * (currentTask.unitPrice || 0)).toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] font-bold text-gray-500 uppercase">Por Pagar (Avance)</p>
+                                    <p className="text-2xl font-black text-green-600">${((currentTask.completedVolume || 0) * (currentTask.unitPrice || 0)).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'materials' && (
+                        <div className="space-y-4">
+                            <div className="flex gap-2 mb-4">
+                                <select id="mat-select" className="flex-1 p-2 border rounded bg-white text-black text-sm">
+                                    <option value="">Seleccionar Material del Inventario...</option>
+                                    {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.quantity} {m.unit} disp.)</option>)}
+                                </select>
+                                <button onClick={() => {
+                                    const sel = document.getElementById('mat-select') as HTMLSelectElement;
+                                    handleAddMaterial(sel.value);
+                                }} className="px-4 py-2 bg-primary-600 text-white rounded font-bold hover:bg-primary-700">+</button>
+                            </div>
+
+                            <div className="space-y-2">
+                                <h5 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">Materiales Asignados a esta Tarea</h5>
+                                {currentTask.materialAssignments?.length === 0 ? (
+                                    <p className="text-sm text-gray-400 italic text-center py-8">No hay materiales vinculados a esta tarea.</p>
+                                ) : (
+                                    currentTask.materialAssignments?.map(assignment => {
+                                        const mat = materials.find(m => m.id === assignment.materialId);
+                                        return (
+                                            <div key={assignment.materialId} className="flex items-center justify-between p-3 bg-gray-50 rounded-md border">
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-black text-sm">{mat?.name || 'Material Desconocido'}</p>
+                                                    <p className="text-[10px] text-gray-500">Stock disponible: {mat?.quantity} {mat?.unit}</p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <input 
+                                                        type="number" 
+                                                        value={assignment.quantity} 
+                                                        onChange={e => handleUpdateMaterialQty(assignment.materialId, parseFloat(e.target.value) || 0)}
+                                                        className="w-20 p-1 border rounded bg-white text-black text-sm text-center font-bold"
+                                                    />
+                                                    <span className="text-xs text-gray-500 w-12">{mat?.unit}</span>
+                                                    <button onClick={() => handleRemoveMaterial(assignment.materialId)} className="text-red-500 hover:bg-red-50 p-1 rounded">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="pt-4 border-t sticky bottom-0 bg-white">
+                        <button onClick={handleSave} className="w-full py-3 bg-primary-600 text-white rounded-md font-bold shadow-lg hover:bg-primary-700 transition-all">
+                            Guardar Planificación Completa
+                        </button>
+                    </div>
                 </div>
-                 <div className="mt-4 flex justify-end">
-                    <button onClick={() => setIsPhotoManagerOpen(false)} className="px-6 py-2 bg-primary-600 text-white rounded-md font-bold">Hecho</button>
-                 </div>
             </Modal>
             
-             <ExcelImportModal
+            <ExcelImportModal
                 isOpen={isImportModalOpen}
                 onClose={() => setIsImportModalOpen(false)}
                 onImport={handleImportTasks}
-                title="Importar Tareas"
-                expectedColumns={['Nombre', 'Descripción', 'Fecha Inicio', 'Fecha Fin', 'Estado']}
-                templateFileName="plantilla_planificacion.xlsx"
+                title="Importar Tareas Maestro"
+                expectedColumns={['Nombre', 'Descripción', 'Fecha Inicio', 'Fecha Fin', 'Estado', 'Volumen Total', 'Precio Unitario', 'Extraordinario']}
             />
-
-            {viewingPhotoUrl && (
-                 <Modal isOpen={!!viewingPhotoUrl} onClose={() => setViewingPhotoUrl(null)} title="Vista Previa">
-                    <img src={viewingPhotoUrl} alt="Vista Previa" className="w-full max-h-[80vh] object-contain rounded-lg"/>
-                 </Modal>
-            )}
 
             <ConfirmModal
                 isOpen={deleteConfirmation.isOpen}
                 onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
-                onConfirm={confirmDeleteTask}
-                title="Confirmar Eliminación"
-                message={`¿Estás seguro de que deseas eliminar "${deleteConfirmation.name}"?`}
+                onConfirm={async () => {
+                    if (deleteConfirmation.id) await deleteItem('tasks', deleteConfirmation.id);
+                }}
+                title="Eliminar Actividad"
+                message={`¿Eliminar "${deleteConfirmation.name}"? Se perderán los cálculos de destajo y materiales vinculados.`}
                 confirmText="Eliminar"
                 isDangerous={true}
             />
