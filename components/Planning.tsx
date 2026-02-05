@@ -260,7 +260,6 @@ const Planning: React.FC = () => {
         }, 0);
     };
 
-    // FIX: Implemented missing material assignment handlers for the Task modal.
     const handleAddMaterialToTask = (materialId: string) => {
         const assignments = [...(currentTask.materialAssignments || [])];
         if (assignments.some(asg => asg.materialId === materialId)) return;
@@ -283,8 +282,8 @@ const Planning: React.FC = () => {
 
     const renderLaborView = () => (
         <Card>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-black">Control Maestro de Destajos</h3>
+            <div className="flex justify-between items-center mb-4 text-black">
+                <h3 className="text-xl font-bold">Control Maestro de Destajos</h3>
                 <div className="text-right">
                     <p className="text-[10px] text-gray-400 uppercase font-bold">Total Producido en Obra</p>
                     <p className="text-xl font-black text-green-600">
@@ -293,7 +292,7 @@ const Planning: React.FC = () => {
                 </div>
             </div>
             <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-left text-sm text-black">
                     <thead>
                         <tr className="bg-gray-100 border-b">
                             <th className="p-3">Actividad</th>
@@ -310,7 +309,7 @@ const Planning: React.FC = () => {
                             const produced = (task.completedVolume || 0) * (task.unitPrice || 0);
                             return (
                                 <tr key={task.id} className="border-b hover:bg-gray-50">
-                                    <td className="p-3 font-semibold text-black">
+                                    <td className="p-3 font-semibold">
                                         {task.isExtraordinary && <span className="mr-2 text-[9px] bg-orange-100 text-orange-600 px-1 rounded font-bold uppercase">Extraordinario</span>}
                                         {task.name}
                                     </td>
@@ -358,7 +357,7 @@ const Planning: React.FC = () => {
                                 const mat = materials.find(m => m.id === asg.materialId);
                                 const isCritical = mat ? mat.quantity < asg.quantity : true;
                                 return (
-                                    <div key={asg.materialId} className="flex justify-between items-center text-xs">
+                                    <div key={asg.materialId} className="flex justify-between items-center text-xs text-black">
                                         <span className="text-gray-600 font-medium">{mat?.name || '---'}</span>
                                         <div className="flex items-center gap-2">
                                             <span className={`font-bold ${isCritical ? 'text-red-600' : 'text-black'}`}>
@@ -546,8 +545,8 @@ const Planning: React.FC = () => {
                     {activeModalTab === 'materials' && (
                         <div className="space-y-4">
                             <h4 className="text-xs font-black text-primary-700 uppercase mb-2">Vincular Materiales del Proyecto</h4>
-                            <div className="flex gap-2">
-                                <select id="planning-mat-sel" className="flex-1 p-2 border rounded-lg bg-white text-black text-sm">
+                            <div className="flex gap-2 text-black">
+                                <select id="planning-mat-sel" className="flex-1 p-2 border rounded-lg bg-white text-sm">
                                     <option value="">Seleccionar Material...</option>
                                     {materials.map(m => <option key={m.id} value={m.id}>{m.name} (${m.unitCost.toLocaleString()} /{m.unit})</option>)}
                                 </select>
@@ -556,7 +555,7 @@ const Planning: React.FC = () => {
                                         const sel = document.getElementById('planning-mat-sel') as HTMLSelectElement;
                                         if (sel.value) handleAddMaterialToTask(sel.value);
                                     }}
-                                    className="px-4 py-2 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700"
+                                    className="px-4 py-2 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 transition-all"
                                 >
                                     Vincular
                                 </button>
@@ -565,9 +564,9 @@ const Planning: React.FC = () => {
                                 {currentTask.materialAssignments?.map(asg => {
                                     const mat = materials.find(m => m.id === asg.materialId);
                                     return (
-                                        <div key={asg.materialId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                        <div key={asg.materialId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 text-black">
                                             <div className="flex-1">
-                                                <p className="text-sm font-bold text-black">{mat?.name}</p>
+                                                <p className="text-sm font-bold">{mat?.name}</p>
                                                 <p className="text-[10px] text-gray-500 font-bold uppercase">Subtotal: ${(asg.quantity * (mat?.unitCost || 0)).toLocaleString()}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -578,7 +577,7 @@ const Planning: React.FC = () => {
                                                     className="w-16 p-1 border rounded bg-white text-center font-bold text-xs"
                                                 />
                                                 <span className="text-[10px] text-gray-400 font-bold uppercase w-10 truncate">{mat?.unit}</span>
-                                                <button onClick={() => handleRemoveMaterial(asg.materialId)} className="text-red-500 hover:bg-red-50 p-1 rounded-md">
+                                                <button onClick={() => handleRemoveMaterial(asg.materialId)} className="text-red-500 hover:bg-red-50 p-1 rounded-md transition-colors">
                                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                 </button>
                                             </div>
@@ -602,9 +601,9 @@ const Planning: React.FC = () => {
                                     <p className="text-[10px] text-gray-500 font-bold uppercase">Mano de Obra (Destajo): ${( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ).toLocaleString()}</p>
                                     <p className="text-[10px] text-gray-500 font-bold uppercase">Materiales: ${calculateMaterialCost(currentTask).toLocaleString()}</p>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-right text-black">
                                     <p className="text-[10px] text-gray-500 font-bold uppercase">Total Estimado</p>
-                                    <p className="text-2xl font-black text-black">${(( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ) + calculateMaterialCost(currentTask)).toLocaleString()}</p>
+                                    <p className="text-2xl font-black">${(( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ) + calculateMaterialCost(currentTask)).toLocaleString()}</p>
                                 </div>
                              </div>
                         </div>
