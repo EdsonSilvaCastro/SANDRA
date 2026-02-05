@@ -116,13 +116,6 @@ const STORAGE_KEYS = {
     DATA_PREFIX: 'constructpro_data_'
 };
 
-const formatError = (error: any): string => {
-    if (!error) return 'Unknown error';
-    if (error instanceof Error) return error.message;
-    if (typeof error === 'object') return error.message || JSON.stringify(error);
-    return String(error);
-};
-
 export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User }> = ({ children, currentUser }) => {
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -273,9 +266,9 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   const addItem = async (resource: keyof ProjectData, item: any) => {
       if (!activeProjectId) return;
       const itemWithId = { ...item, id: item.id || generateId(resource.slice(0, 3)) };
+      
       if (!isConfigured) {
           try {
-              // Obtenemos la versión más reciente del almacenamiento para evitar race conditions
               const storageKey = `${STORAGE_KEYS.DATA_PREFIX}${activeProjectId}_${resource}`;
               const currentListJson = localStorage.getItem(storageKey);
               const currentList = currentListJson ? JSON.parse(currentListJson) : [];
@@ -285,7 +278,7 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
               setProjectData(prev => ({ ...prev, [resource]: newList }));
           } catch (e: any) {
               if (e.name === 'QuotaExceededError') {
-                  throw new Error("El almacenamiento del navegador está lleno. No se pueden guardar más fotos/datos pesados.");
+                  throw new Error("Memoria llena. Intenta borrar fotos antiguas o comprimir más las nuevas.");
               }
               throw e;
           }

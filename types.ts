@@ -25,6 +25,11 @@ export interface Worker {
   hourlyRate: number;
 }
 
+export interface TaskMaterial {
+  materialId: string;
+  quantity: number;
+}
+
 export interface Task {
   id: string;
   name: string;
@@ -36,12 +41,13 @@ export interface Task {
   completionDate?: string;
   totalVolume?: number;
   completedVolume?: number;
-  unitPrice?: number; // Nuevo campo: Precio por unidad
+  unitPrice?: number; // Precio por unidad (Destajo)
   volumeUnit?: string;
   photoIds?: string[];
   dependsOn?: string[];
-  totalValue?: number; // Se calcula como totalVolume * unitPrice
+  totalValue?: number; // totalVolume * unitPrice
   isExtraordinary?: boolean;
+  materialAssignments?: TaskMaterial[]; // Materiales vinculados a la tarea
 }
 
 export interface TimeLog {
@@ -99,7 +105,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password?: string; // Should be hashed in a real app
+  password?: string;
   role?: 'admin' | 'user' | 'viewer';
 }
 
@@ -114,11 +120,10 @@ export interface ContentEntry {
   tags: string[];
 }
 
-// Update Project definition
 export interface Project {
   id: string;
   name: string;
   ownerId: string;
   pin?: string;
-  collaboratorIds?: string[]; // New field for sharing
+  collaboratorIds?: string[];
 }
