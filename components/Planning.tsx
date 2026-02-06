@@ -7,7 +7,7 @@ import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
 import ExcelImportModal from './ui/ExcelImportModal';
 import { useProject } from '../contexts/ProjectContext';
-import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
+import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek, parseISO } from 'date-fns';
 
 type TimeScale = 'day' | 'week' | 'month';
 type TaskModalTab = 'general' | 'labor' | 'materials';
@@ -139,7 +139,7 @@ const GanttChart: React.FC<{
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-black flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" /></svg>
-                    Cronograma de Obra
+                    Cronograma Maestro
                 </h3>
                 <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
                     {(['day', 'week', 'month'] as TimeScale[]).map(scale => (
@@ -154,7 +154,7 @@ const GanttChart: React.FC<{
                     <div className="flex sticky top-0 z-20 bg-gray-50 border-b">
                         <div className="w-[200px] flex-shrink-0 border-r p-2 font-bold text-xs text-black sticky left-0 bg-gray-50">Actividad</div>
                         {gridDates.map((date, i) => (
-                            <div key={i} className="border-r text-center text-[10px] py-1 flex-shrink-0 font-medium" style={{ width: columnWidth }}>
+                            <div key={i} className="border-r text-center text-[10px] py-1 flex-shrink-0 font-medium text-black" style={{ width: columnWidth }}>
                                 {timeScale === 'day' ? format(date, 'd') : format(date, 'w')}
                             </div>
                         ))}
@@ -253,6 +253,12 @@ const Planning: React.FC = () => {
         setIsModalOpen(false);
     };
 
+    const handleQuickAdvance = async (task: Task, advance: number) => {
+        const newCompleted = Math.min(task.totalVolume || 0, advance);
+        const status = newCompleted >= (task.totalVolume || 0) ? 'Completado' : 'En Progreso';
+        await updateItem('tasks', task.id, { completedVolume: newCompleted, status });
+    };
+
     const calculateMaterialCost = (task: Partial<Task>) => {
         return (task.materialAssignments || []).reduce((acc, asg) => {
             const mat = materials.find(m => m.id === asg.materialId);
@@ -278,6 +284,20 @@ const Planning: React.FC = () => {
     const handleRemoveMaterial = (materialId: string) => {
         const assignments = (currentTask.materialAssignments || []).filter(asg => asg.materialId !== materialId);
         setCurrentTask({ ...currentTask, materialAssignments: assignments });
+    };
+
+    const parseExcelDate = (serial: any) => {
+        if (!serial) return format(new Date(), 'yyyy-MM-dd');
+        if (typeof serial === 'number') {
+            // Excel serial dates start from 1900-01-01
+            const date = new Date((serial - 25569) * 86400 * 1000);
+            return format(date, 'yyyy-MM-dd');
+        }
+        try {
+            const d = new Date(serial);
+            if (!isNaN(d.getTime())) return format(d, 'yyyy-MM-dd');
+        } catch (e) {}
+        return format(new Date(), 'yyyy-MM-dd');
     };
 
     const renderLaborView = () => (
@@ -379,14 +399,16 @@ const Planning: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h2 className="text-3xl font-black text-black tracking-tight">Planificación Maestro</h2>
-                    <p className="text-sm text-gray-500">Gestión de tiempos, destajos y suministros globales</p>
+                    <h2 className="text-3xl font-black text-black tracking-tight">Planificación y Avances</h2>
+                    <p className="text-sm text-gray-500">Gestión de tiempos, destajos y catálogo de obra</p>
                 </div>
                 {canEdit && (
                     <div className="flex gap-2">
-                        <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-white border border-gray-300 text-black rounded-lg hover:bg-gray-50 font-bold text-sm shadow-sm transition-all">Importar</button>
+                        <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-white border border-gray-300 text-black rounded-lg hover:bg-gray-50 font-bold text-sm shadow-sm transition-all flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            Importar Catálogo
+                        </button>
                         <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-bold text-sm shadow-md transition-all">Nueva Actividad</button>
-                        <button onClick={() => handleOpenModal(undefined, true)} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-bold text-sm shadow-md transition-all">Extraordinario</button>
                     </div>
                 )}
             </div>
@@ -394,13 +416,13 @@ const Planning: React.FC = () => {
             {/* Sub-modulos Navigation */}
             <div className="flex p-1 bg-gray-200 rounded-xl w-full md:w-fit no-print">
                 <button onClick={() => setMainTab('cronograma')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mainTab === 'cronograma' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>Cronograma</button>
-                <button onClick={() => setMainTab('destajos')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mainTab === 'destajos' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>Destajos</button>
+                <button onClick={() => setMainTab('destajos')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mainTab === 'destajos' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>Mano de Obra</button>
                 <button onClick={() => setMainTab('materiales')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mainTab === 'materiales' ? 'bg-white text-primary-600 shadow-sm' : 'text-gray-500'}`}>Materiales</button>
             </div>
 
             {/* Filters for the list */}
             <div className="flex border-b border-gray-200 no-print overflow-x-auto">
-                <button onClick={() => setListFilter('all')} className={`px-6 py-3 font-medium text-sm border-b-2 transition-all ${listFilter === 'all' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Todas las Actividades</button>
+                <button onClick={() => setListFilter('all')} className={`px-6 py-3 font-medium text-sm border-b-2 transition-all ${listFilter === 'all' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Todos</button>
                 <button onClick={() => setListFilter('base')} className={`px-6 py-3 font-medium text-sm border-b-2 transition-all ${listFilter === 'base' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Contrato Base</button>
                 <button onClick={() => setListFilter('extraordinary')} className={`px-6 py-3 font-medium text-sm border-b-2 transition-all ${listFilter === 'extraordinary' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Extraordinarios</button>
             </div>
@@ -415,9 +437,9 @@ const Planning: React.FC = () => {
                             const progress = (task.totalVolume && task.totalVolume > 0) ? ((task.completedVolume || 0) / (task.totalVolume || 0)) * 100 : 0;
 
                             return (
-                                <Card key={task.id} className={`relative overflow-hidden group border hover:border-primary-300 transition-all cursor-pointer ${task.isExtraordinary ? 'border-l-4 border-l-orange-500' : ''}`} onClick={() => handleOpenModal(task)}>
+                                <Card key={task.id} className={`relative overflow-hidden group border hover:border-primary-300 transition-all ${task.isExtraordinary ? 'border-l-4 border-l-orange-500' : ''}`}>
                                     <div className="flex justify-between items-start mb-2">
-                                        <h4 className="font-bold text-black group-hover:text-primary-600 transition-colors truncate pr-2">
+                                        <h4 className="font-bold text-black group-hover:text-primary-600 transition-colors truncate pr-2 cursor-pointer" onClick={() => handleOpenModal(task)}>
                                             {task.isExtraordinary && <span className="mr-1 text-[9px] bg-orange-100 text-orange-600 px-1 rounded font-bold uppercase">Extraordinario</span>}
                                             {task.name}
                                         </h4>
@@ -427,21 +449,37 @@ const Planning: React.FC = () => {
                                     </div>
                                     
                                     <div className="flex justify-between items-center mb-3 text-[10px] font-bold text-gray-500 uppercase">
-                                        <span>Inversión Total: ${(laborCost + materialCost).toLocaleString()}</span>
-                                        <span>{format(new Date(task.startDate), 'dd MMM')}</span>
+                                        <span>Total: ${(laborCost + materialCost).toLocaleString()}</span>
+                                        <span>Vence: {format(new Date(task.endDate), 'dd MMM')}</span>
                                     </div>
 
                                     <ProgressBar value={progress} color={task.isExtraordinary ? 'yellow' : task.status === 'Completado' ? 'green' : 'blue'} />
-                                    <div className="flex justify-between mt-1 text-[9px] font-bold text-gray-500">
-                                        <span>{progress.toFixed(0)}% COMPLETADO</span>
-                                        <span>${laborCost.toLocaleString()} DEST.</span>
+                                    
+                                    <div className="mt-4 flex flex-col gap-2">
+                                        <label className="text-[9px] font-black text-gray-400 uppercase">Registrar Avance Real ({task.volumeUnit})</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="number" 
+                                                defaultValue={task.completedVolume} 
+                                                onBlur={(e) => handleQuickAdvance(task, parseFloat(e.target.value) || 0)}
+                                                className="flex-1 p-1 text-xs border rounded bg-white text-black font-bold focus:ring-1 focus:ring-primary-500 outline-none"
+                                                placeholder={`0 de ${task.totalVolume}`}
+                                            />
+                                            <button 
+                                                onClick={() => handleOpenModal(task)}
+                                                className="p-1 text-primary-600 hover:bg-primary-50 rounded"
+                                                title="Editar detalles completos"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </Card>
                             );
                         })}
                         {filteredTasks.length === 0 && (
                             <div className="col-span-full py-20 text-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-                                <p className="text-gray-400 font-medium">No se encontraron actividades con el filtro seleccionado.</p>
+                                <p className="text-gray-400 font-medium">No se encontraron actividades.</p>
                             </div>
                         )}
                     </div>
@@ -460,7 +498,7 @@ const Planning: React.FC = () => {
                                 onClick={() => setActiveModalTab(tab)} 
                                 className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeModalTab === tab ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}
                             >
-                                {tab === 'general' ? 'Información' : tab === 'labor' ? 'Mano de Obra' : 'Materiales'}
+                                {tab === 'general' ? 'Información' : tab === 'labor' ? 'Nómina/Destajo' : 'Insumos'}
                             </button>
                         ))}
                     </div>
@@ -475,10 +513,10 @@ const Planning: React.FC = () => {
                                     onChange={e => setCurrentTask({...currentTask, isExtraordinary: e.target.checked})}
                                     className="h-4 w-4 text-orange-600 rounded border-orange-300 focus:ring-orange-500"
                                 />
-                                <label htmlFor="extra-toggle" className="text-xs font-bold text-orange-800 uppercase cursor-pointer">Marcar como Trabajo Extraordinario</label>
+                                <label htmlFor="extra-toggle" className="text-xs font-bold text-orange-800 uppercase cursor-pointer">Actividad Extraordinaria</label>
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-gray-400 uppercase">Nombre de la Actividad</label>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Concepto / Actividad</label>
                                 <input type="text" value={currentTask.name || ''} onChange={e => setCurrentTask({...currentTask, name: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -487,7 +525,7 @@ const Planning: React.FC = () => {
                                     <input type="date" value={currentTask.startDate || ''} onChange={e => setCurrentTask({...currentTask, startDate: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black" />
                                 </div>
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Entrega</label>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Entrega Final</label>
                                     <input type="date" value={currentTask.endDate || ''} onChange={e => setCurrentTask({...currentTask, endDate: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black" />
                                 </div>
                             </div>
@@ -505,38 +543,38 @@ const Planning: React.FC = () => {
 
                     {activeModalTab === 'labor' && (
                         <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                            <h4 className="text-xs font-black text-primary-700 uppercase mb-2">Configuración Financiera del Destajo</h4>
+                            <h4 className="text-xs font-black text-primary-700 uppercase mb-2">Configuración de Pago por Destajo</h4>
                             <div>
-                                <label className="text-[10px] font-bold text-gray-400 uppercase">Destajista Asignado</label>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Destajista Responsable</label>
                                 <select value={currentTask.assignedWorkerId || ''} onChange={e => setCurrentTask({...currentTask, assignedWorkerId: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-medium">
-                                    <option value="">Seleccionar del Personal...</option>
+                                    <option value="">Sin Asignar...</option>
                                     {workers.map(w => <option key={w.id} value={w.id}>{w.name} - {w.role}</option>)}
                                 </select>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Volumen Total de Obra</label>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Cantidad Total Programada</label>
                                     <input type="number" value={currentTask.totalVolume || 0} onChange={e => setCurrentTask({...currentTask, totalVolume: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
                                 </div>
                                 <div className="flex flex-col">
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">Unidad de Medida</label>
-                                    <input type="text" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black" placeholder="m², m³, pz, tramo" />
+                                    <input type="text" value={currentTask.volumeUnit || ''} onChange={e => setCurrentTask({...currentTask, volumeUnit: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black" placeholder="m2, ml, kg, pz" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Avance Ejecutado</label>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Avance Real Actual</label>
                                     <input type="number" value={currentTask.completedVolume || 0} onChange={e => setCurrentTask({...currentTask, completedVolume: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded-lg bg-white text-black font-bold text-blue-600" />
                                 </div>
                                 <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Precio Unitario ($)</label>
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Precio Unitario Destajo ($)</label>
                                     <input type="number" value={currentTask.unitPrice || 0} onChange={e => setCurrentTask({...currentTask, unitPrice: parseFloat(e.target.value) || 0})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
                                 </div>
                             </div>
                             <div className="p-3 bg-white rounded-lg border-2 border-primary-100 flex justify-between items-center shadow-inner">
-                                <span className="text-[10px] font-bold text-gray-500 uppercase">Inversión Mano de Obra:</span>
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">Monto Producido Hoy:</span>
                                 <span className="text-xl font-black text-primary-600">
-                                    ${((currentTask.totalVolume || 0) * (currentTask.unitPrice || 0)).toLocaleString()}
+                                    ${((currentTask.completedVolume || 0) * (currentTask.unitPrice || 0)).toLocaleString()}
                                 </span>
                             </div>
                         </div>
@@ -544,10 +582,10 @@ const Planning: React.FC = () => {
 
                     {activeModalTab === 'materials' && (
                         <div className="space-y-4">
-                            <h4 className="text-xs font-black text-primary-700 uppercase mb-2">Vincular Materiales del Proyecto</h4>
+                            <h4 className="text-xs font-black text-primary-700 uppercase mb-2">Vincular Materiales</h4>
                             <div className="flex gap-2 text-black">
                                 <select id="planning-mat-sel" className="flex-1 p-2 border rounded-lg bg-white text-sm">
-                                    <option value="">Seleccionar Material...</option>
+                                    <option value="">Seleccionar Material del Almacén...</option>
                                     {materials.map(m => <option key={m.id} value={m.id}>{m.name} (${m.unitCost.toLocaleString()} /{m.unit})</option>)}
                                 </select>
                                 <button 
@@ -557,7 +595,7 @@ const Planning: React.FC = () => {
                                     }}
                                     className="px-4 py-2 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 transition-all"
                                 >
-                                    Vincular
+                                    Añadir
                                 </button>
                             </div>
                             <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2">
@@ -567,7 +605,7 @@ const Planning: React.FC = () => {
                                         <div key={asg.materialId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 text-black">
                                             <div className="flex-1">
                                                 <p className="text-sm font-bold">{mat?.name}</p>
-                                                <p className="text-[10px] text-gray-500 font-bold uppercase">Subtotal: ${(asg.quantity * (mat?.unitCost || 0)).toLocaleString()}</p>
+                                                <p className="text-[10px] text-gray-500 font-bold uppercase">Inversión: ${(asg.quantity * (mat?.unitCost || 0)).toLocaleString()}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <input 
@@ -584,11 +622,6 @@ const Planning: React.FC = () => {
                                         </div>
                                     );
                                 })}
-                                {currentTask.materialAssignments?.length === 0 && (
-                                    <div className="text-center py-10 border-2 border-dashed rounded-lg bg-gray-50">
-                                        <p className="text-gray-400 text-xs font-bold uppercase">No hay insumos asignados</p>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
@@ -597,27 +630,18 @@ const Planning: React.FC = () => {
                         <div className="mb-4 bg-primary-50 p-4 rounded-xl border-2 border-primary-100">
                              <div className="flex justify-between items-end">
                                 <div className="space-y-1">
-                                    <h5 className="text-[10px] font-black text-primary-800 uppercase">Resumen de Inversión por Actividad</h5>
-                                    <p className="text-[10px] text-gray-500 font-bold uppercase">Mano de Obra (Destajo): ${( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ).toLocaleString()}</p>
+                                    <h5 className="text-[10px] font-black text-primary-800 uppercase">Costo Total Estimado</h5>
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase">Mano de Obra: ${( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ).toLocaleString()}</p>
                                     <p className="text-[10px] text-gray-500 font-bold uppercase">Materiales: ${calculateMaterialCost(currentTask).toLocaleString()}</p>
                                 </div>
                                 <div className="text-right text-black">
-                                    <p className="text-[10px] text-gray-500 font-bold uppercase">Total Estimado</p>
                                     <p className="text-2xl font-black">${(( (currentTask.totalVolume || 0) * (currentTask.unitPrice || 0) ) + calculateMaterialCost(currentTask)).toLocaleString()}</p>
                                 </div>
                              </div>
                         </div>
                         <button onClick={handleSave} className="w-full py-4 bg-primary-600 text-white rounded-xl font-black shadow-lg hover:bg-primary-700 transition-all uppercase tracking-wider">
-                            Guardar Configuración de Actividad
+                            Guardar Cambios
                         </button>
-                        {isEditing && (
-                            <button 
-                                onClick={() => setDeleteConfirmation({isOpen: true, id: currentTask.id!, name: currentTask.name!})} 
-                                className="w-full mt-3 py-2 text-red-500 font-bold text-[10px] hover:bg-red-50 rounded-lg transition-all uppercase"
-                            >
-                                Eliminar Actividad Definitivamente
-                            </button>
-                        )}
                     </div>
                 </div>
             </Modal>
@@ -627,21 +651,25 @@ const Planning: React.FC = () => {
                 onClose={() => setIsImportModalOpen(false)} 
                 onImport={async (data) => {
                     for (const row of data) {
+                        const name = row.Nombre || row.Actividad || row.Concepto;
+                        if (!name) continue;
+
                         await addItem('tasks', {
                             id: `tsk-${Date.now()}-${Math.random()}`,
-                            name: row.Nombre,
-                            startDate: row.Inicio,
-                            endDate: row.Fin,
+                            name: name.toString(),
+                            startDate: parseExcelDate(row.Inicio || row.FechaInicio),
+                            endDate: parseExcelDate(row.Fin || row.FechaFin),
                             status: 'No Iniciado',
-                            totalVolume: parseFloat(row.Volumen) || 0,
-                            unitPrice: parseFloat(row.Precio) || 0,
-                            volumeUnit: row.Unidad || 'pz',
+                            totalVolume: parseFloat(row.Volumen || row.Cantidad) || 0,
+                            unitPrice: parseFloat(row.Precio || row.PrecioUnitario) || 0,
+                            volumeUnit: (row.Unidad || 'pz').toString(),
                             isExtraordinary: row.Extraordinario?.toString().toLowerCase() === 'si'
                         });
                     }
                 }}
-                title="Cargar Tareas Maestro"
-                expectedColumns={['Nombre', 'Inicio', 'Fin', 'Volumen', 'Unidad', 'Precio', 'Extraordinario']}
+                title="Importar Catálogo de Obra"
+                expectedColumns={['Nombre', 'Inicio', 'Fin', 'Volumen', 'Unidad', 'Precio']}
+                templateFileName="catalogo_obra_template.xlsx"
             />
 
             <ConfirmModal
@@ -654,7 +682,7 @@ const Planning: React.FC = () => {
                     }
                 }}
                 title="Eliminar Actividad"
-                message={`¿Estás seguro de que quieres eliminar "${deleteConfirmation.name}"? Los datos financieros y de avance se borrarán permanentemente.`}
+                message={`¿Eliminar permanentemente "${deleteConfirmation.name}"?`}
                 confirmText="Eliminar"
                 isDangerous={true}
             />
