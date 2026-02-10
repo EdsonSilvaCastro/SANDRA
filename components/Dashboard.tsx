@@ -14,49 +14,30 @@ const Dashboard: React.FC = () => {
   const budgetCategories = projectData.budgetCategories;
   const expenses = projectData.expenses;
 
-  // Helper para obtener el progreso de una tarea individual (0 a 1)
-  const getTaskProgressFactor = (task: Task): number => {
-    if (task.totalVolume && task.totalVolume > 0) {
-      return Math.min(1, (task.completedVolume || 0) / task.totalVolume);
-    }
-    if (task.status === 'Completado') return 1;
-    if (task.status === 'En Progreso') return 0.1; // Valor base si está en progreso pero sin volumen definido
-    return 0;
+  // Helper para obtener el valor ejecutado de una tarea (Mano de Obra Producida)
+  const getProducedValue = (task: Task): number => {
+    return (task.completedVolume || 0) * (task.unitPrice || 0);
   };
 
+  const totalProducedLabor = tasks.reduce((acc, task) => acc + getProducedValue(task), 0);
   const totalBudget = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
-  const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
+  
+  // El gasto total ahora incluye los gastos directos registrados + los destajos producidos
+  const manualExpenses = expenses.reduce((acc, exp) => acc + exp.amount, 0);
+  const totalSpent = manualExpenses + totalProducedLabor;
+  
   const budgetProgress = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   
-  // Cálculo de Progreso del Proyecto Ponderado
-  // Si las tareas tienen valor monetario, usamos Valor Ganado (Earned Value)
-  // Si no, usamos el promedio simple de los porcentajes de cada tarea.
-  const tasksWithTotalValue = tasks.filter(t => (t.totalValue || 0) > 0);
-  const totalProjectValue = tasks.reduce((acc, task) => acc + (task.totalValue || 0), 0);
-
-  let projectProgress = 0;
-  if (tasks.length > 0) {
-    if (totalProjectValue > 0) {
-      // Ponderación por Valor Económico (Más preciso para construcción)
-      const earnedValue = tasks.reduce((acc, task) => {
-        return acc + ((task.totalValue || 0) * getTaskProgressFactor(task));
-      }, 0);
-      projectProgress = (earnedValue / totalProjectValue) * 100;
-    } else {
-      // Ponderación Equitativa (Promedio simple de avances)
-      const sumProgress = tasks.reduce((acc, task) => acc + getTaskProgressFactor(task), 0);
-      projectProgress = (sumProgress / tasks.length) * 100;
-    }
-  }
-
-  const executedWorkValue = tasks.reduce((acc, task) => {
-    return acc + ((task.totalValue || 0) * getTaskProgressFactor(task));
-  }, 0);
+  // Cálculo de progreso del proyecto (Basado en volumen de obra producida vs programada)
+  const totalPlannedValue = tasks.reduce((acc, task) => acc + ((task.totalVolume || 0) * (task.unitPrice || 0)), 0);
+  const projectProgress = totalPlannedValue > 0 ? (totalProducedLabor / totalPlannedValue) * 100 : 0;
 
   const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
 
   const budgetChartData = budgetCategories.map(cat => {
-    const spent = expenses.filter(exp => exp.categoryId === cat.id).reduce((sum, exp) => sum + exp.amount, 0);
+    const isLabor = cat.name.toLowerCase().includes('mano de obra');
+    const manualSpent = expenses.filter(exp => exp.categoryId === cat.id).reduce((sum, exp) => sum + exp.amount, 0);
+    const spent = isLabor ? manualSpent + totalProducedLabor : manualSpent;
     return { name: cat.name, Asignado: cat.allocated, Gastado: spent };
   });
 
@@ -64,112 +45,92 @@ const Dashboard: React.FC = () => {
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
     .slice(0, 5);
     
-  const taskStatusCounts = upcomingTasks.reduce((acc, task) => {
-    const status = task.status;
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  
-  const taskStatusChartData = [
-      { name: 'No Iniciado', Tareas: taskStatusCounts['No Iniciado'] || 0 },
-      { name: 'En Progreso', Tareas: taskStatusCounts['En Progreso'] || 0 },
-      { name: 'Retrasado', Tareas: taskStatusCounts['Retrasado'] || 0 },
-      { name: 'Completado', Tareas: taskStatusCounts['Completado'] || 0 },
-  ].filter(item => item.Tareas > 0);
-
   const TASK_STATUS_COLORS: { [key: string]: string } = {
-      'No Iniciado': '#a1a1aa',
+      'No Iniciado': '#94a3b8',
       'En Progreso': '#3b82f6',
       'Retrasado': '#ef4444',
       'Completado': '#22c55e',
   };
   
   return (
-    <div>
-      <h2 className="text-3xl font-semibold text-black mb-6">Panel del Proyecto</h2>
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h2 className="text-3xl font-black text-black tracking-tight">Panel de Control</h2>
+            <p className="text-sm text-gray-500">Resumen financiero y operativo en tiempo real</p>
+        </div>
+      </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-        <Card>
-          <h4 className="font-medium text-black">Presupuesto Total</h4>
-          <p className="text-3xl font-bold text-black">${totalBudget.toLocaleString()}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="bg-white border-l-4 border-l-primary-600">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Presupuesto Total</p>
+          <p className="text-2xl font-black text-black">${totalBudget.toLocaleString()}</p>
         </Card>
-        <Card>
-          <h4 className="font-medium text-black">Monto Gastado</h4>
-          <p className="text-3xl font-bold text-black">${totalSpent.toLocaleString()}</p>
+        <Card className="bg-white border-l-4 border-l-blue-600">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Inversión Ejecutada</p>
+          <p className="text-2xl font-black text-blue-600">${totalSpent.toLocaleString()}</p>
         </Card>
-        <Card>
-          <h4 className="font-medium text-black">Valor del Trabajo Ejecutado</h4>
-          <p className="text-3xl font-bold text-black">${executedWorkValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        <Card className="bg-white border-l-4 border-l-green-600">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Mano de Obra (Destajos)</p>
+          <p className="text-2xl font-black text-green-600">${totalProducedLabor.toLocaleString()}</p>
         </Card>
-        <Card>
-          <h4 className="font-medium text-black">Progreso del Proyecto</h4>
-          <p className="text-3xl font-bold text-black">{projectProgress.toFixed(1)}%</p>
-          <ProgressBar value={projectProgress} color="green" className="mt-2" />
-        </Card>
-        <Card>
-          <h4 className="font-medium text-black">Artículos con Stock Bajo</h4>
-          <p className="text-3xl font-bold text-black">{lowStockItems.length}</p>
+        <Card className="bg-white border-l-4 border-l-orange-600">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Material Crítico</p>
+          <p className="text-2xl font-black text-orange-600">{lowStockItems.length} SKUs</p>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Resumen del Presupuesto">
-           <div className="mb-4">
-             <div className="flex justify-between mb-1">
-                <span className="text-base font-medium text-black">Ejecución Presupuestaria</span>
-                <span className="text-sm font-medium text-black">{budgetProgress.toFixed(1)}%</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2" title="Ejecución Presupuestaria por Partida">
+           <div className="mb-6">
+             <div className="flex justify-between mb-2">
+                <span className="text-xs font-black text-black uppercase">Consumo Global</span>
+                <span className="text-xs font-black text-black">{budgetProgress.toFixed(1)}%</span>
             </div>
             <ProgressBar value={budgetProgress} color={budgetProgress > 100 ? 'red' : budgetProgress > 85 ? 'yellow' : 'blue'} />
            </div>
-          <div style={{ width: '100%', height: 300 }}>
+          <div style={{ width: '100%', height: 350 }}>
             <ResponsiveContainer>
-              <BarChart data={budgetChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="Asignado" fill="#8884d8" />
-                <Bar dataKey="Gastado" fill="#82ca9d" />
+              <BarChart data={budgetChartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{fontSize: 10, fontWeight: 'bold'}} />
+                <YAxis tick={{fontSize: 10}} />
+                <Tooltip cursor={{fill: '#f8fafc'}} />
+                <Legend iconType="circle" wrapperStyle={{fontSize: 10, fontWeight: 'bold', paddingTop: 20}} />
+                <Bar dataKey="Asignado" fill="#e2e8f0" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Gastado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Card>
 
-        <Card title="Próximas Tareas">
-          <ul className="space-y-3">
+        <Card title="Próximos Hitos">
+           <div className="mb-6">
+             <div className="flex justify-between mb-2">
+                <span className="text-xs font-black text-black uppercase">Avance de Obra</span>
+                <span className="text-xs font-black text-black">{projectProgress.toFixed(1)}%</span>
+            </div>
+            <ProgressBar value={projectProgress} color="green" />
+           </div>
+          <ul className="space-y-4">
             {upcomingTasks.map(task => (
-              <li key={task.id} className="p-3 bg-gray-50 rounded-md">
-                <p className="font-semibold text-black">{task.name}</p>
-                <div className="flex justify-between items-center mt-1">
-                    <p className="text-xs text-black">Vence: {new Date(task.endDate).toLocaleDateString()}</p>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full text-white ${TASK_STATUS_COLORS[task.status] || 'bg-gray-400'}`}>
+              <li key={task.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-primary-300 transition-all">
+                <div className="flex justify-between items-start mb-2">
+                    <p className="font-bold text-sm text-black truncate pr-2">{task.name}</p>
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full text-white ${TASK_STATUS_COLORS[task.status] || 'bg-gray-400'}`}>
                         {task.status}
                     </span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase">
+                    <span>${getProducedValue(task).toLocaleString()} EJEC.</span>
+                    <span>VENCE: {new Date(task.endDate).toLocaleDateString()}</span>
                 </div>
               </li>
             ))}
              {upcomingTasks.length === 0 && (
-                <p className="text-center text-gray-500 py-4">No hay tareas próximas.</p>
+                <p className="text-center text-gray-500 py-10 font-medium">No hay tareas programadas.</p>
             )}
           </ul>
-           {taskStatusChartData.length > 0 && (
-            <div className="mt-4 pt-4 border-t" style={{ width: '100%', height: 150 }}>
-                <h5 className="text-sm font-semibold text-black mb-2 text-center">Estado de las Próximas 5 Tareas</h5>
-                <ResponsiveContainer>
-                    <BarChart data={taskStatusChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                        <XAxis type="number" allowDecimals={false} />
-                        <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 12 }} />
-                        <Tooltip cursor={{fill: '#fafafa'}} />
-                        <Bar dataKey="Tareas" barSize={20}>
-                            {taskStatusChartData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={TASK_STATUS_COLORS[entry.name]} />
-                            ))}
-                        </Bar>
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-          )}
         </Card>
       </div>
     </div>
