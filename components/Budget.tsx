@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { BudgetCategory, Expense } from '../types';
+import React, { useState, useMemo } from 'react';
+import { BudgetCategory, Expense, Task } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
@@ -8,13 +8,14 @@ import ProgressBar from './ui/ProgressBar';
 import ExcelImportModal from './ui/ExcelImportModal';
 import { useProject } from '../contexts/ProjectContext';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+// FIX: Import format from date-fns to resolve "Cannot find name 'format'" error.
+import { format } from 'date-fns';
 
 const Budget: React.FC = () => {
     const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
     const canEdit = currentUser.role !== 'viewer';
 
-    const budgetCategories = projectData.budgetCategories;
-    const expenses = projectData.expenses;
+    const { budgetCategories, expenses, tasks } = projectData;
     
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
     const [currentExpense, setCurrentExpense] = useState<Partial<Expense>>({});
@@ -24,21 +25,35 @@ const Budget: React.FC = () => {
     const [currentCategory, setCurrentCategory] = useState<Partial<BudgetCategory>>({});
     const [isEditingCategory, setIsEditingCategory] = useState(false);
 
-    // Import Modal State
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
     const [validationError, setValidationError] = useState<string>('');
 
+    // CÁLCULO DINÁMICO DE DESTAJOS (Mano de Obra Producida)
+    const totalProducedLabor = useMemo(() => {
+        return tasks.reduce((sum, task) => {
+            return sum + ((task.completedVolume || 0) * (task.unitPrice || 0));
+        }, 0);
+    }, [tasks]);
 
-    const totalAllocatedFromCategories = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
-    const displayTotalBudget = totalAllocatedFromCategories;
-    const totalSpent = expenses.reduce((acc, exp) => acc + exp.amount, 0);
+    // Función para obtener el gasto real de una categoría (Gasto manual + Destajo si es Mano de Obra)
+    const getCategorySpent = (category: BudgetCategory) => {
+        const manualSpent = expenses.filter(e => e.categoryId === category.id).reduce((sum, e) => sum + e.amount, 0);
+        // Si la categoría es "Mano de Obra" (detectado por nombre), sumamos lo producido en planificación
+        if (category.name.toLowerCase().includes('mano de obra') || category.name.toLowerCase().includes('labor')) {
+            return manualSpent + totalProducedLabor;
+        }
+        return manualSpent;
+    };
+
+    const totalAllocated = useMemo(() => budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0), [budgetCategories]);
+    const totalSpent = useMemo(() => budgetCategories.reduce((acc, cat) => acc + getCategorySpent(cat), 0), [budgetCategories, expenses, totalProducedLabor]);
     
-    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
+    const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+    
     const expenseChartData = budgetCategories.map(cat => ({
         name: cat.name,
-        value: expenses.filter(e => e.categoryId === cat.id).reduce((sum, e) => sum + e.amount, 0)
+        value: getCategorySpent(cat)
     })).filter(d => d.value > 0);
 
     const handleOpenExpenseModal = (expense?: Expense) => {
@@ -54,57 +69,7 @@ const Budget: React.FC = () => {
         setIsExpenseModalOpen(true);
     };
 
-    const handleCloseExpenseModal = () => {
-        setIsExpenseModalOpen(false);
-        setCurrentExpense({});
-        setIsEditingExpense(false);
-        setValidationError('');
-    };
-
-    const handleSaveExpense = async () => {
-        if (!canEdit) return;
-        if (!currentExpense.description || currentExpense.amount === undefined || !currentExpense.categoryId || !currentExpense.date) {
-            setValidationError('Por favor, complete todos los campos (Descripción, Monto, Categoría, Fecha).');
-            return;
-        }
-
-        try {
-            const expenseData = {
-                description: currentExpense.description,
-                amount: Number(currentExpense.amount),
-                categoryId: currentExpense.categoryId,
-                date: currentExpense.date
-            };
-
-            if (isEditingExpense && currentExpense.id) {
-                await updateItem('expenses', currentExpense.id, expenseData);
-            } else {
-                await addItem('expenses', { ...expenseData, id: `exp-${Date.now()}` });
-            }
-            handleCloseExpenseModal();
-        } catch (error) {
-            console.error("Error saving expense:", error);
-            setValidationError("Error al guardar el gasto. Intente nuevamente.");
-        }
-    };
-    
-    const handleDeleteExpenseClick = (expenseId: string) => {
-        if (!canEdit) return;
-        const expenseToDelete = expenses.find(e => e.id === expenseId);
-        if (expenseToDelete) {
-            setDeleteConfirmation({ isOpen: true, id: expenseId, name: expenseToDelete.description });
-        }
-    };
-
-    const confirmDeleteExpense = async () => {
-        if (!canEdit) return;
-        if (deleteConfirmation.id) {
-            await deleteItem('expenses', deleteConfirmation.id);
-        }
-        setDeleteConfirmation({ isOpen: false, id: null, name: '' });
-    };
-    
-    // Handlers for category modal
+    // FIX: Define handleOpenCategoryModal to resolve "Cannot find name 'handleOpenCategoryModal'" error.
     const handleOpenCategoryModal = (category?: BudgetCategory) => {
         if (!canEdit) return;
         setValidationError('');
@@ -112,267 +77,249 @@ const Budget: React.FC = () => {
             setCurrentCategory({ ...category });
             setIsEditingCategory(true);
         } else {
-            setCurrentCategory({ name: '', allocated: 0 });
+            setCurrentCategory({});
             setIsEditingCategory(false);
         }
         setIsCategoryModalOpen(true);
     };
 
-    const handleCloseCategoryModal = () => {
-        setIsCategoryModalOpen(false);
-        setCurrentCategory({});
-        setValidationError('');
-    };
+    const handleSaveExpense = async () => {
+        if (!canEdit) return;
+        if (!currentExpense.description || currentExpense.amount === undefined || !currentExpense.categoryId || !currentExpense.date) {
+            setValidationError('Por favor, complete todos los campos.');
+            return;
+        }
 
+        const expenseData = {
+            description: currentExpense.description,
+            amount: Number(currentExpense.amount),
+            categoryId: currentExpense.categoryId,
+            date: currentExpense.date
+        };
+
+        if (isEditingExpense && currentExpense.id) {
+            await updateItem('expenses', currentExpense.id, expenseData);
+        } else {
+            await addItem('expenses', { ...expenseData, id: `exp-${Date.now()}` });
+        }
+        setIsExpenseModalOpen(false);
+    };
+    
     const handleSaveCategory = async () => {
         if (!canEdit) return;
-        if (!currentCategory.name || currentCategory.allocated === undefined || currentCategory.allocated < 0) {
-            setValidationError('Por favor, ingrese un nombre y un monto válido.');
+        if (!currentCategory.name || currentCategory.allocated === undefined) {
+            setValidationError('Nombre y Monto son obligatorios.');
             return;
         }
         
-        try {
-            const categoryData = {
-                name: currentCategory.name,
-                allocated: Number(currentCategory.allocated)
-            };
+        const categoryData = { name: currentCategory.name, allocated: Number(currentCategory.allocated) };
 
-            if (isEditingCategory && currentCategory.id) {
-                await updateItem('budgetCategories', currentCategory.id, categoryData);
-            } else {
-                await addItem('budgetCategories', { ...categoryData, id: `cat-${Date.now()}` });
-            }
-            handleCloseCategoryModal();
-        } catch (error) {
-            console.error("Error saving category:", error);
-            setValidationError("Error al guardar la categoría. Intente nuevamente.");
+        if (isEditingCategory && currentCategory.id) {
+            await updateItem('budgetCategories', currentCategory.id, categoryData);
+        } else {
+            await addItem('budgetCategories', { ...categoryData, id: `cat-${Date.now()}` });
         }
+        setIsCategoryModalOpen(false);
     };
-
-    // Excel Import Logic for Expenses
-    const handleImportExpenses = async (data: any[]) => {
-        let count = 0;
-        let skippedCount = 0;
-        
-        for (const row of data) {
-            // Match category by name (case insensitive)
-            const categoryName = row['Categoría'];
-            const category = budgetCategories.find(c => 
-                c.name.trim().toLowerCase() === categoryName?.toString().trim().toLowerCase()
-            );
-            
-            if (!category) {
-                skippedCount++;
-                continue; 
-            }
-
-            const parseDate = (val: any) => {
-                if (!val) return new Date().toISOString().split('T')[0];
-                if (typeof val === 'number') {
-                    const date = new Date((val - (25567 + 2)) * 86400 * 1000);
-                    return date.toISOString().split('T')[0];
-                }
-                try {
-                    const date = new Date(val);
-                    if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
-                } catch(e) {}
-                return new Date().toISOString().split('T')[0];
-            };
-
-            const newExpense = {
-                description: row['Descripción'] || 'Sin descripción',
-                amount: Number(row['Monto']) || 0,
-                categoryId: category.id,
-                date: parseDate(row['Fecha']),
-                id: `exp-imp-${Date.now()}-${count}`
-            };
-
-            if (newExpense.description && !isNaN(newExpense.amount)) {
-                await addItem('expenses', newExpense);
-                count++;
-            }
-        }
-        
-        if (skippedCount > 0) {
-            alert(`${count} gastos importados. ${skippedCount} filas fueron omitidas porque la categoría no existe en el proyecto. Asegúrese de crear las categorías primero.`);
-        }
-    };
-
 
     return (
-        <div>
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-semibold text-black">Control de Presupuesto</h2>
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black text-black">Presupuesto Maestro</h2>
                 {canEdit && (
                     <div className="flex gap-2">
-                        <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                            Importar Excel
-                        </button>
-                        <button onClick={() => handleOpenExpenseModal()} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
-                            Añadir Gasto
-                        </button>
+                        <button onClick={() => setIsImportModalOpen(true)} className="px-4 py-2 bg-white border text-black rounded-lg hover:bg-gray-50 font-bold text-sm shadow-sm transition-all">Importar Excel</button>
+                        <button onClick={() => handleOpenExpenseModal()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-bold text-sm shadow-md transition-all">Añadir Gasto Directo</button>
                     </div>
                 )}
             </div>
             
-            <Card className="mb-6">
-                <div className="flex flex-col md:flex-row justify-between items-center text-center md:text-left">
-                    <div className="mb-4 md:mb-0">
-                        <div className="flex items-center gap-2 justify-center md:justify-start">
-                            <p className="text-black">Presupuesto Total (Suma de Categorías)</p>
+            <Card className="bg-slate-900 border-none text-white overflow-hidden relative">
+                <div className="absolute top-0 right-0 p-8 opacity-10">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+                    <div>
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Presupuesto Global</p>
+                        <p className="text-4xl font-black">${totalAllocated.toLocaleString()}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Ejecutado (Gastos + Destajos)</p>
+                        <p className="text-4xl font-black text-blue-400">${totalSpent.toLocaleString()}</p>
+                        <div className="mt-2 text-[10px] font-bold text-slate-500 uppercase">
+                            Incluye ${totalProducedLabor.toLocaleString()} en destajos de obra
                         </div>
-                        <p className="text-4xl font-bold text-black">${displayTotalBudget.toLocaleString()}</p>
                     </div>
-                     <div className="mb-4 md:mb-0">
-                        <p className="text-black">Total Gastado</p>
-                        <p className="text-4xl font-bold text-black">${totalSpent.toLocaleString()}</p>
-                    </div>
-                     <div>
-                        <p className="text-black">Restante</p>
-                        <p className={`text-4xl font-bold ${(displayTotalBudget - totalSpent) < 0 ? 'text-red-600' : 'text-black'}`}>${(displayTotalBudget - totalSpent).toLocaleString()}</p>
+                    <div>
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Saldo Disponible</p>
+                        <p className={`text-4xl font-black ${(totalAllocated - totalSpent) < 0 ? 'text-red-500' : 'text-green-400'}`}>
+                            ${(totalAllocated - totalSpent).toLocaleString()}
+                        </p>
                     </div>
                 </div>
-                 <div className="mt-4">
-                    <ProgressBar value={displayTotalBudget > 0 ? (totalSpent / displayTotalBudget) * 100 : 0} color={ displayTotalBudget > 0 && (totalSpent/displayTotalBudget) > 0.9 ? 'red' : displayTotalBudget > 0 && (totalSpent/displayTotalBudget) > 0.75 ? 'yellow' : 'blue'} />
+                <div className="mt-6">
+                    <ProgressBar value={(totalSpent / totalAllocated) * 100} color={(totalSpent / totalAllocated) > 0.9 ? 'red' : 'blue'} className="h-3 bg-slate-800" />
                 </div>
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                    <Card title="Registro de Gastos">
+                    <Card title="Desglose por Categorías">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {budgetCategories.map(cat => {
+                                const spent = getCategorySpent(cat);
+                                const isLabor = cat.name.toLowerCase().includes('mano de obra');
+                                const progress = (spent / cat.allocated) * 100;
+                                
+                                return (
+                                    <div key={cat.id} className="p-4 border rounded-xl hover:shadow-md transition-shadow cursor-pointer group" onClick={() => handleOpenCategoryModal(cat)}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h4 className="font-bold text-black group-hover:text-primary-600 transition-colors">
+                                                {cat.name}
+                                                {isLabor && <span className="ml-2 text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-black uppercase">Auto-Destajo</span>}
+                                            </h4>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">{progress.toFixed(0)}%</span>
+                                        </div>
+                                        <div className="flex justify-between items-end mb-2">
+                                            <div>
+                                                <p className="text-[9px] text-gray-500 font-bold uppercase">Asignado</p>
+                                                <p className="text-sm font-bold text-black">${cat.allocated.toLocaleString()}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[9px] text-gray-500 font-bold uppercase">Consumido</p>
+                                                <p className={`text-sm font-bold ${progress > 100 ? 'text-red-600' : 'text-primary-600'}`}>${spent.toLocaleString()}</p>
+                                            </div>
+                                        </div>
+                                        <ProgressBar value={progress} color={progress > 100 ? 'red' : 'blue'} />
+                                    </div>
+                                );
+                            })}
+                            {canEdit && (
+                                <button onClick={() => setIsCategoryModalOpen(true)} className="border-2 border-dashed rounded-xl p-4 text-gray-400 font-bold text-sm hover:bg-gray-50 hover:border-primary-400 transition-all">
+                                    + Nueva Categoría Presupuestaria
+                                </button>
+                            )}
+                        </div>
+                    </Card>
+
+                    <Card title="Últimos Gastos Directos" className="mt-6">
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left">
+                            <table className="w-full text-left text-sm text-black">
                                 <thead>
-                                    <tr className="border-b bg-gray-50">
+                                    <tr className="border-b bg-gray-50 font-black uppercase text-[10px] text-gray-500">
                                         <th className="p-3">Fecha</th>
                                         <th className="p-3">Descripción</th>
                                         <th className="p-3">Categoría</th>
                                         <th className="p-3 text-right">Monto</th>
-                                        <th className="p-3 text-center">Acciones</th>
+                                        {canEdit && <th className="p-3 text-center">Acciones</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {expenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(exp => (
+                                    {expenses.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(exp => (
                                         <tr key={exp.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 text-sm text-black">{new Date(exp.date).toLocaleDateString()}</td>
+                                            <td className="p-3">{format(new Date(exp.date), 'dd/MM/yyyy')}</td>
                                             <td className="p-3 font-medium">{exp.description}</td>
                                             <td className="p-3">{budgetCategories.find(c => c.id === exp.categoryId)?.name}</td>
-                                            <td className="p-3 text-right font-semibold">${exp.amount.toFixed(2)}</td>
-                                            <td className="p-3 text-center whitespace-nowrap">
-                                                {canEdit ? (
-                                                    <>
-                                                        <button onClick={() => handleOpenExpenseModal(exp)} className="text-black hover:text-gray-600 font-medium text-sm">Editar</button>
-                                                        <button onClick={() => handleDeleteExpenseClick(exp.id)} className="ml-3 text-red-600 hover:text-red-800 font-medium text-sm">Eliminar</button>
-                                                    </>
-                                                ) : <span className="text-gray-400 text-sm">Solo lectura</span>}
-                                            </td>
+                                            <td className="p-3 text-right font-bold text-primary-700">${exp.amount.toLocaleString()}</td>
+                                            {canEdit && (
+                                                <td className="p-3 text-center">
+                                                    <div className="flex justify-center gap-2">
+                                                        <button onClick={() => handleOpenExpenseModal(exp)} className="text-gray-400 hover:text-primary-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                                        <button onClick={() => { setDeleteConfirmation({isOpen: true, id: exp.id, name: exp.description}); }} className="text-gray-400 hover:text-red-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                    </div>
+                                                </td>
+                                            )}
                                         </tr>
                                     ))}
-                                    {expenses.length === 0 && (
-                                        <tr>
-                                            <td colSpan={5} className="p-4 text-center text-gray-500">No hay gastos registrados.</td>
-                                        </tr>
-                                    )}
                                 </tbody>
                             </table>
                         </div>
                     </Card>
                 </div>
+
                 <div className="space-y-6">
-                    <Card title="Gasto por Categoría">
-                        <div style={{ width: '100%', height: 300 }}>
-                           <ResponsiveContainer>
+                    <Card title="Gasto por Partida">
+                        <div className="h-[300px] w-full">
+                            <ResponsiveContainer>
                                 <PieChart>
-                                    <Pie data={expenseChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
-                                        {expenseChartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
+                                    <Pie data={expenseChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                        {expenseChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                     </Pie>
-                                    <Tooltip />
+                                    <Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} />
                                     <Legend />
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
                     </Card>
-                    <Card title="Resumen de Categorías">
-                        <div className="space-y-3 mb-4 max-h-[500px] overflow-y-auto pr-1">
-                            {budgetCategories.map(cat => {
-                                const spent = expenses.filter(e => e.categoryId === cat.id).reduce((sum, e) => sum + e.amount, 0);
-                                const progress = cat.allocated > 0 ? (spent / cat.allocated) * 100 : 0;
-                                const isOverBudget = progress > 100;
-                                return (
-                                    <div key={cat.id} className={`p-3 rounded-lg ${isOverBudget ? 'bg-red-50' : 'bg-gray-50'}`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="font-medium text-black">{cat.name}</span>
-                                            {isOverBudget && <span className="text-xs font-bold text-red-600">EXCEDIDO</span>}
-                                            {canEdit && (
-                                                <button onClick={() => handleOpenCategoryModal(cat)} className="text-xs text-blue-600 hover:text-blue-800 font-semibold">EDITAR</button>
-                                            )}
-                                        </div>
-                                        <div className="flex justify-between items-center text-sm mt-2">
-                                            <span className={`font-semibold ${isOverBudget ? 'text-red-600' : 'text-black'}`}>${spent.toLocaleString()}</span>
-                                            <span className="text-gray-500">/ ${cat.allocated.toLocaleString()}</span>
-                                        </div>
-                                        <ProgressBar 
-                                            value={progress} 
-                                            color={isOverBudget ? 'red' : progress > 85 ? 'yellow' : 'blue'} 
-                                            className="mt-1" 
-                                        />
+
+                    <Card title="Resumen de Mano de Obra (Destajos)">
+                        <div className="space-y-4">
+                            <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                                <p className="text-[10px] font-black text-blue-800 uppercase mb-1">Monto Producido en Campo</p>
+                                <p className="text-2xl font-black text-blue-900">${totalProducedLabor.toLocaleString()}</p>
+                                <p className="text-[10px] text-blue-600 font-bold mt-2 uppercase">Este monto se descuenta automáticamente del presupuesto de "Mano de Obra"</p>
+                            </div>
+                            <div className="space-y-2">
+                                {tasks.filter(t => (t.completedVolume || 0) > 0).slice(0, 5).map(task => (
+                                    <div key={task.id} className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-600 truncate mr-2 font-medium">{task.name}</span>
+                                        <span className="font-bold text-black">${((task.completedVolume || 0) * (task.unitPrice || 0)).toLocaleString()}</span>
                                     </div>
-                                )
-                            })}
-                            {budgetCategories.length === 0 && (
-                                <p className="text-center text-gray-500 text-sm py-2">No hay categorías definidas.</p>
-                            )}
+                                ))}
+                            </div>
                         </div>
-                        {canEdit && (
-                            <button onClick={() => handleOpenCategoryModal()} className="w-full py-2 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors font-medium">
-                                Añadir Categoría
-                            </button>
-                        )}
                     </Card>
                 </div>
             </div>
 
-            <Modal isOpen={isExpenseModalOpen} onClose={handleCloseExpenseModal} title={isEditingExpense ? 'Editar Gasto' : 'Añadir Nuevo Gasto'}>
+            {/* Modales de Edición */}
+            <Modal isOpen={isExpenseModalOpen} onClose={() => setIsExpenseModalOpen(false)} title={isEditingExpense ? 'Editar Gasto Directo' : 'Registrar Nuevo Gasto Directo'}>
                 <div className="space-y-4">
-                    <input type="text" placeholder="Descripción" value={currentExpense.description || ''} onChange={e => {setCurrentExpense({...currentExpense, description: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="number" placeholder="Monto" value={currentExpense.amount ?? ''} onChange={e => {setCurrentExpense({...currentExpense, amount: parseFloat(e.target.value) || 0}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <select value={currentExpense.categoryId || ''} onChange={e => {setCurrentExpense({...currentExpense, categoryId: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black">
-                        <option value="">Seleccionar Categoría</option>
-                        {budgetCategories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                    </select>
-                    <input type="date" value={currentExpense.date || ''} onChange={e => {setCurrentExpense({...currentExpense, date: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black" />
-                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
-                    <button onClick={handleSaveExpense} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar Gasto</button>
-                </div>
-            </Modal>
-            
-            <Modal isOpen={isCategoryModalOpen} onClose={handleCloseCategoryModal} title={isEditingCategory ? 'Editar Categoría' : 'Añadir Nueva Categoría'}>
-                <div className="space-y-4">
-                    <input type="text" placeholder="Nombre de la Categoría" value={currentCategory.name || ''} onChange={e => {setCurrentCategory({...currentCategory, name: e.target.value}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    <input type="number" placeholder="Monto Asignado" value={currentCategory.allocated ?? ''} onChange={e => {setCurrentCategory({...currentCategory, allocated: parseFloat(e.target.value) || 0}); setValidationError('');}} className="w-full p-2 border rounded bg-white text-black placeholder-gray-500" />
-                    {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
-                    <button onClick={handleSaveCategory} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700">Guardar</button>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Descripción</label>
+                        <input type="text" value={currentExpense.description || ''} onChange={e => setCurrentExpense({...currentExpense, description: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Monto ($)</label>
+                            <input type="number" value={currentExpense.amount || ''} onChange={e => setCurrentExpense({...currentExpense, amount: parseFloat(e.target.value)})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Categoría</label>
+                            <select value={currentExpense.categoryId || ''} onChange={e => setCurrentExpense({...currentExpense, categoryId: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-bold">
+                                <option value="">Seleccionar...</option>
+                                {budgetCategories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Fecha</label>
+                        <input type="date" value={currentExpense.date || ''} onChange={e => setCurrentExpense({...currentExpense, date: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
+                    </div>
+                    <button onClick={handleSaveExpense} className="w-full py-4 bg-primary-600 text-white rounded-xl font-black shadow-lg hover:bg-primary-700 transition-all uppercase tracking-wider">Guardar Gasto</button>
                 </div>
             </Modal>
 
-            <ExcelImportModal
-                isOpen={isImportModalOpen}
-                onClose={() => setIsImportModalOpen(false)}
-                onImport={handleImportExpenses}
-                title="Importar Gastos desde Excel"
-                expectedColumns={['Fecha', 'Descripción', 'Monto', 'Categoría']}
-                templateFileName="plantilla_gastos.xlsx"
-            />
+            <Modal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} title={isEditingCategory ? 'Editar Categoría' : 'Nueva Categoría Presupuestaria'}>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Nombre de la Categoría</label>
+                        <input type="text" value={currentCategory.name || ''} onChange={e => setCurrentCategory({...currentCategory, name: e.target.value})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Presupuesto Asignado ($)</label>
+                        <input type="number" value={currentCategory.allocated || ''} onChange={e => setCurrentCategory({...currentCategory, allocated: parseFloat(e.target.value)})} className="w-full p-2 border rounded-lg bg-white text-black font-bold" />
+                    </div>
+                    <button onClick={handleSaveCategory} className="w-full py-4 bg-primary-600 text-white rounded-xl font-black shadow-lg hover:bg-primary-700 transition-all uppercase tracking-wider">Guardar Categoría</button>
+                </div>
+            </Modal>
 
             <ConfirmModal
                 isOpen={deleteConfirmation.isOpen}
                 onClose={() => setDeleteConfirmation({ isOpen: false, id: null, name: '' })}
-                onConfirm={confirmDeleteExpense}
+                onConfirm={async () => { if (deleteConfirmation.id) await deleteItem('expenses', deleteConfirmation.id); }}
                 title="Eliminar Gasto"
-                message={`¿Estás seguro de que quieres eliminar el gasto "${deleteConfirmation.name}"?`}
+                message={`¿Eliminar el gasto "${deleteConfirmation.name}"?`}
                 confirmText="Eliminar"
                 isDangerous={true}
             />
