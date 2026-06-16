@@ -35,6 +35,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS volume_unit TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS photo_ids TEXT[];
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS depends_on TEXT[];
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS total_value NUMERIC;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_extraordinary BOOLEAN DEFAULT false;
 
 -- ============================================
 -- TIME_LOGS TABLE
@@ -70,6 +71,27 @@ ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS country TEXT;
 ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS website TEXT;
 ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
 ALTER TABLE crm_contacts ADD COLUMN IF NOT EXISTS last_contact_date DATE;
+
+-- ============================================
+-- CLIENTS TABLE
+-- ============================================
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS status TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_name TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_email TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_phone TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- ============================================
+-- INTERACTIONS TABLE
+-- ============================================
+ALTER TABLE interactions ADD COLUMN IF NOT EXISTS client_id TEXT;
+ALTER TABLE interactions ADD COLUMN IF NOT EXISTS date DATE;
+ALTER TABLE interactions ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE interactions ADD COLUMN IF NOT EXISTS summary TEXT;
+ALTER TABLE interactions ADD COLUMN IF NOT EXISTS follow_up_date DATE;
 
 -- ============================================
 -- REPORTS TABLE
