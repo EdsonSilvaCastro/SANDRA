@@ -5,7 +5,7 @@ import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
-import CsvImportModal from './ui/CsvImportModal';
+import ExcelImportModal from './ui/ExcelImportModal';
 import { useProject } from '../contexts/ProjectContext';
 import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
 
@@ -750,8 +750,8 @@ const Planning: React.FC = () => {
                 </div>
             </Modal>
 
-            <CsvImportModal 
-                isOpen={isCsvModalOpen} 
+            <ExcelImportModal
+                isOpen={isCsvModalOpen}
                 onClose={() => setIsCsvModalOpen(false)} 
                 onImport={async (data) => {
                     for (const row of data) {

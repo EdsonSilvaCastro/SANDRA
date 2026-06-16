@@ -264,7 +264,18 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
                     console.error(`Error fetching ${table}:`, formatError(error));
                     return [key, []];
                 }
-                return [key, mapKeysToCamel(data)];
+                let mapped = mapKeysToCamel(data);
+                // 'assigned_to' in DB maps to 'assignedTo' via camelCase, but the app uses 'assignedWorkerId'
+                if (key === 'tasks') {
+                    mapped = mapped.map((t: any) => {
+                        if ('assignedTo' in t) {
+                            const { assignedTo, ...rest } = t;
+                            return { ...rest, assignedWorkerId: assignedTo };
+                        }
+                        return t;
+                    });
+                }
+                return [key, mapped];
             });
 
             const results = await Promise.all(promises);
@@ -447,8 +458,14 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
           if (resource === 'budgetCategories' && itemWithProject.name) {
               itemWithProject = { ...itemWithProject, category: itemWithProject.name };
           }
-          
+
           const dbItem = mapKeysToSnake(itemWithProject);
+
+          // The DB column is 'assigned_to' but camelCase mapping produces 'assigned_worker_id'
+          if (resource === 'tasks' && 'assigned_worker_id' in dbItem) {
+              dbItem.assigned_to = dbItem.assigned_worker_id;
+              delete dbItem.assigned_worker_id;
+          }
           
           const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
           
@@ -481,9 +498,14 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
       // --- SUPABASE MODE ---
       try {
           const dbItem = mapKeysToSnake(item);
-          delete dbItem.project_id; 
+          delete dbItem.project_id;
           delete dbItem.id; // Usually don't update ID
-          
+
+          if (resource === 'tasks' && 'assigned_worker_id' in dbItem) {
+              dbItem.assigned_to = dbItem.assigned_worker_id;
+              delete dbItem.assigned_worker_id;
+          }
+
           const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
           
           if (error) throw error;
