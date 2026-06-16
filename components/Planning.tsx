@@ -750,8 +750,8 @@ const Planning: React.FC = () => {
                 </div>
             </Modal>
 
-            <CsvImportModal 
-                isOpen={isCsvModalOpen} 
+            <ExcelImportModal
+                isOpen={isCsvModalOpen}
                 onClose={() => setIsCsvModalOpen(false)} 
                 onImport={async (data) => {
                     for (const row of data) {

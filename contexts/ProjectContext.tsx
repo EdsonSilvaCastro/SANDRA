@@ -90,7 +90,7 @@ const TABLE_MAP: Record<keyof ProjectData, string> = {
     workers: 'workers',
     tasks: 'tasks',
     timeLogs: 'time_logs',
-    budgetCategories: 'budget_categories',
+    budgetCategories: 'budget_items',
     expenses: 'expenses',
     photos: 'photos',
     clients: 'clients',
@@ -188,9 +188,27 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
         }
         try {
             const promises = Object.entries(TABLE_MAP).map(async ([key, table]) => {
-                const { data, error } = await supabase.from(table).select('*').eq('project_id', activeProjectId);
-                if (error) return [key, []];
-                return [key, mapKeysToCamel(data)];
+                const { data, error } = await supabase
+                    .from(table)
+                    .select('*')
+                    .eq('project_id', activeProjectId);
+
+                if (error) {
+                    console.error(`Error fetching ${table}:`, formatError(error));
+                    return [key, []];
+                }
+                let mapped = mapKeysToCamel(data);
+                // 'assigned_to' in DB maps to 'assignedTo' via camelCase, but the app uses 'assignedWorkerId'
+                if (key === 'tasks') {
+                    mapped = mapped.map((t: any) => {
+                        if ('assignedTo' in t) {
+                            const { assignedTo, ...rest } = t;
+                            return { ...rest, assignedWorkerId: assignedTo };
+                        }
+                        return t;
+                    });
+                }
+                return [key, mapped];
             });
             const results = await Promise.all(promises);
             const newData: any = { ...INITIAL_DATA };
@@ -284,10 +302,36 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
           }
           return;
       }
-      const dbItem = mapKeysToSnake({ ...itemWithId, project_id: activeProjectId });
-      const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
-      if (error) throw error;
-      setProjectData(prev => ({ ...prev, [resource]: [...prev[resource], itemWithId] }));
+
+      // --- SUPABASE MODE ---
+      try {
+          let itemWithProject = { ...itemWithId, project_id: activeProjectId };
+
+          // Special handling for budgetCategories - map 'name' to 'category' for DB
+          if (resource === 'budgetCategories' && itemWithProject.name) {
+              itemWithProject = { ...itemWithProject, category: itemWithProject.name };
+          }
+
+          const dbItem = mapKeysToSnake(itemWithProject);
+
+          // The DB column is 'assigned_to' but camelCase mapping produces 'assigned_worker_id'
+          if (resource === 'tasks' && 'assigned_worker_id' in dbItem) {
+              dbItem.assigned_to = dbItem.assigned_worker_id;
+              delete dbItem.assigned_worker_id;
+          }
+
+          const { error } = await supabase.from(TABLE_MAP[resource]).insert(dbItem);
+
+          if (error) throw error;
+
+          setProjectData(prev => ({
+              ...prev,
+              [resource]: [...prev[resource], itemWithId]
+          }));
+      } catch (error: any) {
+          console.error(`Error adding to ${resource}:`, formatError(error));
+          throw error;
+      }
   };
 
   const updateItem = async (resource: keyof ProjectData, id: string, item: any) => {
@@ -301,11 +345,30 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
           setProjectData(prev => ({ ...prev, [resource]: newList }));
           return;
       }
-      const dbItem = mapKeysToSnake(item);
-      delete dbItem.id;
-      const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
-      if (error) throw error;
-      setProjectData(prev => ({ ...prev, [resource]: prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i) }));
+
+      // --- SUPABASE MODE ---
+      try {
+          const dbItem = mapKeysToSnake(item);
+          delete dbItem.project_id;
+          delete dbItem.id;
+
+          if (resource === 'tasks' && 'assigned_worker_id' in dbItem) {
+              dbItem.assigned_to = dbItem.assigned_worker_id;
+              delete dbItem.assigned_worker_id;
+          }
+
+          const { error } = await supabase.from(TABLE_MAP[resource]).update(dbItem).eq('id', id);
+
+          if (error) throw error;
+
+          setProjectData(prev => ({
+              ...prev,
+              [resource]: prev[resource].map((i: any) => i.id === id ? { ...i, ...item } : i)
+          }));
+      } catch (error: any) {
+          console.error(`Error updating ${resource}:`, formatError(error));
+          throw error;
+      }
   };
 
   const deleteItem = async (resource: keyof ProjectData, id: string) => {

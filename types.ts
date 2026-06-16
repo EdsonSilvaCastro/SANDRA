@@ -39,6 +39,7 @@ export interface TaskSupplier {
   notes?: string;
 }
 
+
 export interface Task {
   id: string;
   name: string;
