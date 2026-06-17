@@ -228,9 +228,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   const createProject = async (name: string, pin?: string) => {
     const newProject: Project = { id: isConfigured ? `proj-${Date.now()}` : generateId('proj'), name, pin, ownerId: currentUser.id, collaboratorIds: [] };
     if (!isConfigured) {
-        const updatedProjects = [...allProjects, newProject];
-        setAllProjects(updatedProjects);
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
+        setAllProjects(prev => {
+            const updatedProjects = [...prev, newProject];
+            localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
+            return updatedProjects;
+        });
         switchProject(newProject.id);
         return;
     }
@@ -245,9 +247,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   const updateProject = async (id: string, data: Partial<Omit<Project, 'id' | 'ownerId'>>) => {
     if (!isConfigured) {
-        const updatedProjects = allProjects.map(p => p.id === id ? { ...p, ...data } : p);
-        setAllProjects(updatedProjects);
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
+        setAllProjects(prev => {
+            const updatedProjects = prev.map(p => p.id === id ? { ...p, ...data } : p);
+            localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updatedProjects));
+            return updatedProjects;
+        });
         return;
     }
     const { error } = await supabase.from('projects').update(mapKeysToSnake(data)).eq('id', id);
@@ -257,8 +261,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   const deleteProject = async (id: string) => {
     if (!isConfigured) {
-        setAllProjects(prev => prev.filter(p => p.id !== id));
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(allProjects.filter(p => p.id !== id)));
+        setAllProjects(prev => {
+            const updated = prev.filter(p => p.id !== id);
+            localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+            return updated;
+        });
         Object.keys(TABLE_MAP).forEach(key => localStorage.removeItem(`${STORAGE_KEYS.DATA_PREFIX}${id}_${key}`));
         if (activeProjectId === id) setActiveProjectId(null);
         return;
@@ -390,9 +397,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   const addUser = async (user: User) => {
       const newUser = { ...user, id: user.id || generateId('user') };
       if (!isConfigured) {
-          const updatedUsers = [...allUsers, newUser];
-          setAllUsers(updatedUsers);
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+          setAllUsers(prev => {
+              const updatedUsers = [...prev, newUser];
+              localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+              return updatedUsers;
+          });
           return;
       }
       const { error } = await supabase.from('users').insert(mapKeysToSnake(newUser));
@@ -402,9 +411,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   const updateUser = async (id: string, user: Partial<User>) => {
       if (!isConfigured) {
-          const updatedUsers = allUsers.map(u => u.id === id ? { ...u, ...user } : u);
-          setAllUsers(updatedUsers);
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+          setAllUsers(prev => {
+              const updatedUsers = prev.map(u => u.id === id ? { ...u, ...user } : u);
+              localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+              return updatedUsers;
+          });
           return;
       }
       const { error } = await supabase.from('users').update(mapKeysToSnake(user)).eq('id', id);
@@ -414,9 +425,11 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
 
   const deleteUser = async (id: string) => {
       if (!isConfigured) {
-          const updatedUsers = allUsers.filter(u => u.id !== id);
-          setAllUsers(updatedUsers);
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+          setAllUsers(prev => {
+              const updatedUsers = prev.filter(u => u.id !== id);
+              localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+              return updatedUsers;
+          });
           return;
       }
       const { error } = await supabase.from('users').delete().eq('id', id);

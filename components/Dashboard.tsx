@@ -20,11 +20,21 @@ const Dashboard: React.FC = () => {
   };
 
   const totalProducedLabor = tasks.reduce((acc, task) => acc + getProducedValue(task), 0);
+  const totalSupplierCosts = tasks.reduce((sum, task) => sum + (task.supplierAssignments || []).reduce((subSum, s) => subSum + (s.amount || 0), 0), 0);
+
+  const getCategorySpentLocal = (cat: typeof budgetCategories[0]) => {
+    const manualSpent = expenses.filter(e => e.categoryId === cat.id).reduce((sum, e) => sum + e.amount, 0);
+    if (cat.name.toLowerCase().includes('mano de obra') || cat.name.toLowerCase().includes('labor')) {
+        return manualSpent + totalProducedLabor;
+    }
+    if (cat.name.toLowerCase().includes('proveedor') || cat.name.toLowerCase().includes('subcontrat')) {
+        return manualSpent + totalSupplierCosts;
+    }
+    return manualSpent;
+  };
+
   const totalBudget = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
-  
-  // El gasto total ahora incluye los gastos directos registrados + los destajos producidos
-  const manualExpenses = expenses.reduce((acc, exp) => acc + exp.amount, 0);
-  const totalSpent = manualExpenses + totalProducedLabor;
+  const totalSpent = budgetCategories.reduce((acc, cat) => acc + getCategorySpentLocal(cat), 0);
   
   const budgetProgress = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   
@@ -35,9 +45,7 @@ const Dashboard: React.FC = () => {
   const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
 
   const budgetChartData = budgetCategories.map(cat => {
-    const isLabor = cat.name.toLowerCase().includes('mano de obra');
-    const manualSpent = expenses.filter(exp => exp.categoryId === cat.id).reduce((sum, exp) => sum + exp.amount, 0);
-    const spent = isLabor ? manualSpent + totalProducedLabor : manualSpent;
+    const spent = getCategorySpentLocal(cat);
     return { name: cat.name, Asignado: cat.allocated, Gastado: spent };
   });
 

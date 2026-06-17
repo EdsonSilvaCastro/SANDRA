@@ -2,7 +2,7 @@
 import React, { useState, FormEvent, useEffect } from 'react';
 import { User } from '../types';
 import Card from './ui/Card';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, isConfigured } from '../lib/supabaseClient';
 
 interface AuthScreenProps {
   onLogin: (user: User) => void;
@@ -18,6 +18,40 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (!isConfigured) {
+        try {
+            const localUsersJson = localStorage.getItem('constructpro_users');
+            const localUsers: User[] = localUsersJson ? JSON.parse(localUsersJson) : [];
+            
+            // Si no hay ningún usuario o falta el administrador por defecto, crearlo
+            const hasAdmin = localUsers.some(u => u.email === 'admin@constructpro.com');
+            if (localUsers.length === 0 || !hasAdmin) {
+                const defaultUser: User = {
+                    id: 'admin-user',
+                    name: 'Administrador',
+                    email: 'admin@constructpro.com',
+                    password: 'admin',
+                    role: 'admin'
+                };
+                localUsers.push(defaultUser);
+                localStorage.setItem('constructpro_users', JSON.stringify(localUsers));
+            }
+            
+            const matchedUser = localUsers.find(u => u.email === email && u.password === password);
+            if (matchedUser) {
+                onLogin(matchedUser);
+            } else {
+                setError('Correo electrónico o contraseña incorrectos.');
+            }
+        } catch (err) {
+            setError('Error al conectar con la base de datos local.');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+        return;
+    }
 
     try {
         // Consulta directa a la tabla 'users' (Simulando auth personalizada sobre tabla)
