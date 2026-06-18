@@ -6,6 +6,7 @@ import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
 import ProgressBar from './ui/ProgressBar';
 import CsvImportModal from './ui/CsvImportModal';
+import ExcelImportModal from './ui/ExcelImportModal';
 import { useProject } from '../contexts/ProjectContext';
 import { addDays, format, differenceInDays, startOfWeek, addWeeks, addMonths, endOfWeek } from 'date-fns';
 
