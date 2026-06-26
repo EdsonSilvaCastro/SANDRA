@@ -7,7 +7,14 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { Task } from '../types';
 
 const Dashboard: React.FC = () => {
-  const { projectData } = useProject();
+  const { 
+    projectData, 
+    totalProducedLabor, 
+    totalSupplierCosts, 
+    getCategorySpent, 
+    totalAllocated: totalBudget, 
+    totalSpent 
+  } = useProject();
   
   const tasks = projectData.tasks;
   const materials = projectData.materials;
@@ -18,23 +25,6 @@ const Dashboard: React.FC = () => {
   const getProducedValue = (task: Task): number => {
     return (task.completedVolume || 0) * (task.unitPrice || 0);
   };
-
-  const totalProducedLabor = tasks.reduce((acc, task) => acc + getProducedValue(task), 0);
-  const totalSupplierCosts = tasks.reduce((sum, task) => sum + (task.supplierAssignments || []).reduce((subSum, s) => subSum + (s.amount || 0), 0), 0);
-
-  const getCategorySpentLocal = (cat: typeof budgetCategories[0]) => {
-    const manualSpent = expenses.filter(e => e.categoryId === cat.id).reduce((sum, e) => sum + e.amount, 0);
-    if (cat.name.toLowerCase().includes('mano de obra') || cat.name.toLowerCase().includes('labor')) {
-        return manualSpent + totalProducedLabor;
-    }
-    if (cat.name.toLowerCase().includes('proveedor') || cat.name.toLowerCase().includes('subcontrat')) {
-        return manualSpent + totalSupplierCosts;
-    }
-    return manualSpent;
-  };
-
-  const totalBudget = budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
-  const totalSpent = budgetCategories.reduce((acc, cat) => acc + getCategorySpentLocal(cat), 0);
   
   const budgetProgress = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   
@@ -45,7 +35,7 @@ const Dashboard: React.FC = () => {
   const lowStockItems = materials.filter(m => m.quantity <= m.criticalStockLevel);
 
   const budgetChartData = budgetCategories.map(cat => {
-    const spent = getCategorySpentLocal(cat);
+    const spent = getCategorySpent(cat);
     return { name: cat.name, Asignado: cat.allocated, Gastado: spent };
   });
 

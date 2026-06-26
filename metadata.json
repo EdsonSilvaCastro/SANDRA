@@ -2,5 +2,5 @@
   "name": "ConstructPro Gerente",
   "description": "Una aplicación web completa para la gestión de proyectos de construcción, incluyendo materiales, mano de obra, presupuesto, cronograma y una bitácora de fotos. Proporciona seguimiento e informes en tiempo real para agilizar la administración de proyectos.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

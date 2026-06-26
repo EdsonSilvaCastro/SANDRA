@@ -384,7 +384,7 @@ const Planning: React.FC = () => {
                                                 {task.name}
                                             </h4>
                                             <div className="flex items-center gap-1 text-[10px] text-gray-500 font-bold uppercase">
-                                                <span>F. Fin: {format(new Date(task.endDate), 'dd MMM')}</span>
+                                                <span>F. Fin: {(() => { const d = new Date(task.endDate); return d instanceof Date && !isNaN(d.getTime()) ? format(d, 'dd MMM') : task.endDate || 'S/D'; })()}</span>
                                             </div>
                                         </div>
                                         <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full flex-shrink-0 ${task.status === 'Completado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
@@ -758,11 +758,35 @@ const Planning: React.FC = () => {
                     for (const row of data) {
                         const name = row.Nombre || row.Actividad || row.Concepto;
                         if (!name) continue;
+
+                        let startDate = row.Inicio || row.FechaInicio || '';
+                        let endDate = row.Fin || row.FechaFin || '';
+
+                        const isValidDate = (dStr: any) => {
+                            if (!dStr) return false;
+                            const d = new Date(dStr);
+                            return d instanceof Date && !isNaN(d.getTime());
+                        };
+
+                        if (!isValidDate(startDate)) {
+                            startDate = new Date().toISOString().split('T')[0];
+                        } else {
+                            startDate = new Date(startDate).toISOString().split('T')[0];
+                        }
+
+                        if (!isValidDate(endDate)) {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 7);
+                            endDate = d.toISOString().split('T')[0];
+                        } else {
+                            endDate = new Date(endDate).toISOString().split('T')[0];
+                        }
+
                         await addItem('tasks', {
                             id: `tsk-${Date.now()}-${Math.random()}`,
                             name: name.toString(),
-                            startDate: row.Inicio || row.FechaInicio,
-                            endDate: row.Fin || row.FechaFin,
+                            startDate: startDate,
+                            endDate: endDate,
                             status: 'No Iniciado',
                             totalVolume: parseFloat(row.Volumen || row.Cantidad) || 0,
                             unitPrice: parseFloat(row.Precio || row.PrecioUnitario) || 0,

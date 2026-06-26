@@ -5,6 +5,18 @@ import Card from './ui/Card';
 import Modal from './ui/Modal';
 import ConfirmModal from './ui/ConfirmModal';
 import { useProject } from '../contexts/ProjectContext';
+import { isConfigured } from '../lib/supabaseClient';
+
+const generateUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+};
 
 const UserManagement: React.FC = () => {
     const { allUsers, addUser, updateUser, deleteUser, projects, updateProject } = useProject();
@@ -19,7 +31,7 @@ const UserManagement: React.FC = () => {
     const handleOpenModal = (user?: User) => {
         setValidationError('');
         if (user) {
-            setCurrentUser(user);
+            setCurrentUser({ ...user });
             setIsEditing(true);
             const initialProjectIds = projects
                 .filter(p => p.collaboratorIds && p.collaboratorIds.includes(user.id))
@@ -27,7 +39,7 @@ const UserManagement: React.FC = () => {
             setAssignedProjectIds(initialProjectIds);
         } else {
             setCurrentUser({
-                id: `user-${Date.now()}`,
+                id: isConfigured ? generateUUID() : `user-${Date.now()}`,
                 role: 'user', 
                 name: '',
                 email: '',
@@ -47,13 +59,19 @@ const UserManagement: React.FC = () => {
         if (!isEditing && !currentUser.password) {
              setValidationError('La contraseña es obligatoria para nuevos usuarios.');
              return;
-        }
+         }
 
         setIsSaving(true);
         setValidationError('');
         
         try {
-            const finalUserId = currentUser.id || `user-${Date.now()}`;
+            let finalUserId = currentUser.id;
+            if (isConfigured && (!finalUserId || finalUserId.startsWith('user-'))) {
+                finalUserId = generateUUID();
+                currentUser.id = finalUserId;
+            } else if (!finalUserId) {
+                finalUserId = `user-${Date.now()}`;
+            }
             
             if (isEditing) {
                 await updateUser(currentUser.id!, currentUser);
@@ -152,20 +170,18 @@ const UserManagement: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="p-3">
-                                        {user.role === 'admin' ? (
-                                            <span className="text-xs text-gray-400 italic">Todos (Acceso Total)</span>
-                                        ) : (
-                                            <div className="flex flex-wrap gap-1 max-w-[280px]">
-                                                {projects.filter(p => p.collaboratorIds && p.collaboratorIds.includes(user.id)).map(p => (
-                                                    <span key={p.id} className="bg-slate-100 border border-slate-200 text-slate-700 text-[10px] px-1.5 py-0.5 rounded font-bold max-w-[130px] truncate" title={p.name}>
-                                                        {p.name}
-                                                    </span>
-                                                ))}
-                                                {projects.filter(p => p.collaboratorIds && p.collaboratorIds.includes(user.id)).length === 0 && (
-                                                    <span className="text-xs text-gray-400 italic">Ningún proyecto asignado</span>
-                                                )}
-                                            </div>
-                                        )}
+                                        <div className="flex flex-wrap gap-1 max-w-[280px]">
+                                            {projects.filter(p => p.collaboratorIds && p.collaboratorIds.includes(user.id)).map(p => (
+                                                <span key={p.id} className="bg-slate-100 border border-slate-200 text-slate-700 text-[10px] px-1.5 py-0.5 rounded font-bold max-w-[130px] truncate" title={p.name}>
+                                                    {p.name}
+                                                </span>
+                                            ))}
+                                            {projects.filter(p => p.collaboratorIds && p.collaboratorIds.includes(user.id)).length === 0 && (
+                                                <span className="text-xs text-gray-400 italic">
+                                                    {user.role === 'admin' ? 'Todos (Acceso Total)' : 'Ningún proyecto asignado'}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="p-3 whitespace-nowrap">
                                         <button onClick={() => handleOpenModal(user)} className="text-black hover:text-gray-600 font-medium">Editar</button>
@@ -203,37 +219,35 @@ const UserManagement: React.FC = () => {
                         </select>
                     </div>
 
-                    {currentUser.role !== 'admin' && (
-                        <div className="space-y-2 border-t pt-3">
-                            <label className="text-xs font-bold uppercase tracking-wider text-gray-500">Proyectos Asignados</label>
-                            <p className="text-[11px] text-gray-400">Asigna los proyectos a los que este usuario tendría de acceso {currentUser.role === 'user' ? 'edición' : 'visualización'}.</p>
-                            <div className="max-h-40 overflow-y-auto border rounded p-2 bg-slate-50 space-y-1.5">
-                                {projects.map(project => {
-                                    const isChecked = assignedProjectIds.includes(project.id);
-                                    return (
-                                        <label key={project.id} className="flex items-center gap-2 text-xs text-black cursor-pointer font-medium p-1 hover:bg-white rounded transition-colors">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={isChecked} 
-                                                onChange={e => {
-                                                    if (e.target.checked) {
-                                                        setAssignedProjectIds([...assignedProjectIds, project.id]);
-                                                    } else {
-                                                        setAssignedProjectIds(assignedProjectIds.filter(id => id !== project.id));
-                                                    }
-                                                }}
-                                                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                                            />
-                                            <span className="truncate">{project.name}</span>
-                                        </label>
-                                    );
-                                })}
-                                {projects.length === 0 && (
-                                    <p className="text-xs text-gray-400 italic">No hay proyectos disponibles.</p>
-                                )}
-                            </div>
+                    <div className="space-y-2 border-t pt-3">
+                        <label className="text-xs font-bold uppercase tracking-wider text-gray-500">Proyectos Asignados</label>
+                        <p className="text-[11px] text-gray-400">Asigna los proyectos a los que este usuario tendría acceso.</p>
+                        <div className="max-h-40 overflow-y-auto border rounded p-2 bg-slate-50 space-y-1.5">
+                            {projects.map(project => {
+                                const isChecked = assignedProjectIds.includes(project.id);
+                                return (
+                                    <label key={project.id} className="flex items-center gap-2 text-xs text-black cursor-pointer font-medium p-1 hover:bg-white rounded transition-colors">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isChecked} 
+                                            onChange={e => {
+                                                if (e.target.checked) {
+                                                    setAssignedProjectIds([...assignedProjectIds, project.id]);
+                                                } else {
+                                                    setAssignedProjectIds(assignedProjectIds.filter(id => id !== project.id));
+                                                }
+                                            }}
+                                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                        />
+                                        <span className="truncate">{project.name}</span>
+                                    </label>
+                                );
+                            })}
+                            {projects.length === 0 && (
+                                <p className="text-xs text-gray-400 italic">No hay proyectos disponibles.</p>
+                            )}
                         </div>
-                    )}
+                    </div>
 
                     {validationError && <p className="text-red-600 text-sm">{validationError}</p>}
                     <button onClick={handleSaveUser} disabled={isSaving} className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:bg-gray-400">

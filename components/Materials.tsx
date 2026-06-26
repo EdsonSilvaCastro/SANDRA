@@ -396,6 +396,58 @@ const Materials: React.FC = () => {
                 confirmText="Eliminar"
                 isDangerous={true}
             />
+
+            <ExcelImportModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={async (data) => {
+                    // Buscar categoría para materiales
+                    let category = budgetCategories.find(c => c.name.toLowerCase().includes('material'));
+                    if (!category && budgetCategories.length > 0) {
+                        category = budgetCategories[0];
+                    }
+
+                    for (const row of data) {
+                        const name = row['Nombre'] || row['name'] || row['Material'] || row['Concepto'];
+                        if (!name) continue;
+
+                        const quantity = parseFloat(row['Cantidad'] || row['quantity'] || row['Cantidad Original'] || row['Stock'] || '0') || 0;
+                        const unit = (row['Unidad'] || row['unit'] || row['Medida'] || 'unidades').toString();
+                        const unitCost = parseFloat(row['Costo Unitario'] || row['unitCost'] || row['Costo'] || row['Precio'] || row['Precio Unitario'] || '0') || 0;
+                        const criticalStockLevel = parseFloat(row['Stock Mínimo'] || row['Minimo'] || row['criticalStockLevel'] || row['Mínimo'] || row['Alerta'] || '0') || 0;
+                        const location = (row['Ubicación'] || row['location'] || row['Proveedor'] || row['Ubicacion'] || '').toString();
+
+                        const materialId = `mat-${Date.now()}-${Math.random()}`;
+                        const totalCost = quantity * unitCost;
+
+                        const newMaterialInput: Material = {
+                            id: materialId,
+                            name: name.toString(),
+                            description: `Importado: ${name}`,
+                            quantity,
+                            unit,
+                            unitCost,
+                            criticalStockLevel,
+                            location
+                        };
+
+                        await addItem('materials', newMaterialInput);
+
+                        if (category && totalCost > 0) {
+                            await addItem('expenses', {
+                                id: `exp-mat-${materialId}`,
+                                description: `Compra inicial (Importación): ${name} (${quantity} ${unit})`,
+                                amount: totalCost,
+                                categoryId: category.id,
+                                date: new Date().toISOString().split('T')[0]
+                            });
+                        }
+                    }
+                }}
+                title="Importar Catálogo de Materiales (Excel)"
+                expectedColumns={['Nombre', 'Cantidad', 'Unidad', 'Costo Unitario']}
+                templateFileName="plantilla_materiales.xlsx"
+            />
         </div>
     );
 };

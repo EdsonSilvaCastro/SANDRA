@@ -12,7 +12,18 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { format } from 'date-fns';
 
 const Budget: React.FC = () => {
-    const { currentUser, projectData, addItem, updateItem, deleteItem } = useProject();
+    const { 
+        currentUser, 
+        projectData, 
+        addItem, 
+        updateItem, 
+        deleteItem,
+        totalProducedLabor,
+        totalSupplierCosts,
+        getCategorySpent,
+        totalAllocated,
+        totalSpent
+    } = useProject();
     const canEdit = currentUser.role !== 'viewer';
 
     const { budgetCategories, expenses, tasks } = projectData;
@@ -29,37 +40,6 @@ const Budget: React.FC = () => {
     const [deleteConfirmation, setDeleteConfirmation] = useState<{isOpen: boolean, id: string | null, name: string}>({isOpen: false, id: null, name: ''});
     const [validationError, setValidationError] = useState<string>('');
 
-    // CÁLCULO DINÁMICO DE DESTAJOS (Mano de Obra Producida)
-    const totalProducedLabor = useMemo(() => {
-        return tasks.reduce((sum, task) => {
-            return sum + ((task.completedVolume || 0) * (task.unitPrice || 0));
-        }, 0);
-    }, [tasks]);
-
-    // CÁLCULO DINÁMICO DE PROVEEDORES (Montos Unificados de Proveedores)
-    const totalSupplierCosts = useMemo(() => {
-        return tasks.reduce((sum, task) => {
-            return sum + (task.supplierAssignments || []).reduce((subSum, s) => subSum + (s.amount || 0), 0);
-        }, 0);
-    }, [tasks]);
-
-    // Función para obtener el gasto real de una categoría (Gasto manual + Destajo si es Mano de Obra o Proveedor si corresponde)
-    const getCategorySpent = (category: BudgetCategory) => {
-        const manualSpent = expenses.filter(e => e.categoryId === category.id).reduce((sum, e) => sum + e.amount, 0);
-        // Si la categoría es "Mano de Obra" (detectado por nombre), sumamos lo producido en planificación
-        if (category.name.toLowerCase().includes('mano de obra') || category.name.toLowerCase().includes('labor')) {
-            return manualSpent + totalProducedLabor;
-        }
-        // Si la categoría es de Proveedores o Subcontratos, sumamos los montos unificados de proveedores
-        if (category.name.toLowerCase().includes('proveedor') || category.name.toLowerCase().includes('subcontrat')) {
-            return manualSpent + totalSupplierCosts;
-        }
-        return manualSpent;
-    };
-
-    const totalAllocated = useMemo(() => budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0), [budgetCategories]);
-    const totalSpent = useMemo(() => budgetCategories.reduce((acc, cat) => acc + getCategorySpent(cat), 0), [budgetCategories, expenses, totalProducedLabor, totalSupplierCosts]);
-    
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
     
     const expenseChartData = budgetCategories.map(cat => ({
@@ -231,7 +211,12 @@ const Budget: React.FC = () => {
                                 <tbody>
                                     {expenses.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(exp => (
                                         <tr key={exp.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3">{format(new Date(exp.date), 'dd/MM/yyyy')}</td>
+                                            <td className="p-3">
+                                                {(() => {
+                                                    const d = new Date(exp.date);
+                                                    return d instanceof Date && !isNaN(d.getTime()) ? format(d, 'dd/MM/yyyy') : exp.date;
+                                                })()}
+                                            </td>
                                             <td className="p-3 font-medium">{exp.description}</td>
                                             <td className="p-3">{budgetCategories.find(c => c.id === exp.categoryId)?.name}</td>
                                             <td className="p-3 text-right font-bold text-primary-700">${exp.amount.toLocaleString()}</td>
@@ -336,6 +321,73 @@ const Budget: React.FC = () => {
                 message={`¿Eliminar el gasto "${deleteConfirmation.name}"?`}
                 confirmText="Eliminar"
                 isDangerous={true}
+            />
+
+            <ExcelImportModal
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                onImport={async (data) => {
+                    for (const row of data) {
+                        const description = row['Descripción'] || row['Descripcion'] || row['Concepto'] || row['name'];
+                        const amountRaw = row['Monto'] || row['Importe'] || row['Cantidad'] || row['allocated'];
+                        if (!description || !amountRaw) continue;
+                        const amount = parseFloat(amountRaw.toString()) || 0;
+                        if (amount <= 0) continue;
+
+                        const categoryName = (row['Partida'] || row['Categoría'] || row['Categoria'] || 'Varios').toString().trim();
+                        let cat = budgetCategories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
+                        if (!cat) {
+                            const newCatId = `cat-${Date.now()}-${Math.random()}`;
+                            cat = { id: newCatId, name: categoryName, allocated: 0 };
+                            await addItem('budgetCategories', cat);
+                        }
+
+                        // parse date
+                        let parsedDate = new Date().toISOString().split('T')[0];
+                        let rawDate = row['Fecha'];
+
+                        if (rawDate) {
+                            if (rawDate instanceof Date) {
+                                parsedDate = rawDate.toISOString().split('T')[0];
+                            } else if (typeof rawDate === 'number') {
+                                const utcDays = Math.floor(rawDate - 25569);
+                                const utcValue = utcDays * 86400;
+                                const dateInfo = new Date(utcValue * 1000);
+                                if (!isNaN(dateInfo.getTime())) {
+                                    parsedDate = dateInfo.toISOString().split('T')[0];
+                                }
+                            } else {
+                                const dateStr = rawDate.toString().trim();
+                                if (dateStr.includes('/')) {
+                                    const parts = dateStr.split('/');
+                                    if (parts.length === 3) {
+                                        if (parts[0].length === 4) {
+                                            parsedDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                                        } else {
+                                            parsedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                                        }
+                                    }
+                                } else {
+                                    const d = new Date(dateStr);
+                                    if (!isNaN(d.getTime())) {
+                                        parsedDate = d.toISOString().split('T')[0];
+                                    }
+                                }
+                            }
+                        }
+
+                        await addItem('expenses', {
+                            id: `exp-${Date.now()}-${Math.random()}`,
+                            description: description.toString(),
+                            amount,
+                            categoryId: cat.id,
+                            date: parsedDate
+                        });
+                    }
+                }}
+                title="Importar Gastos Directos (Excel)"
+                expectedColumns={['Descripción', 'Monto', 'Partida', 'Fecha']}
+                templateFileName="plantilla_gastos.xlsx"
             />
         </div>
     );

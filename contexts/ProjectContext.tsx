@@ -45,6 +45,17 @@ const generateId = (prefix: string) => {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
+const generateUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+};
+
 interface ProjectData {
     materials: Material[];
     materialOrders: MaterialOrder[];
@@ -80,6 +91,11 @@ interface ProjectContextType {
   addUser: (user: User) => Promise<void>;
   updateUser: (id: string, user: Partial<User>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
+  totalProducedLabor: number;
+  totalSupplierCosts: number;
+  getCategorySpent: (category: BudgetCategory) => number;
+  totalAllocated: number;
+  totalSpent: number;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -395,7 +411,7 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
   };
 
   const addUser = async (user: User) => {
-      const newUser = { ...user, id: user.id || generateId('user') };
+      const newUser = { ...user, id: user.id || (isConfigured ? generateUUID() : generateId('user')) };
       if (!isConfigured) {
           setAllUsers(prev => {
               const updatedUsers = [...prev, newUser];
@@ -443,7 +459,58 @@ export const ProjectProvider: React.FC<{ children: ReactNode; currentUser: User 
       visibleProjects = allProjects.filter(p => p.ownerId === currentUser.id || (p.collaboratorIds && p.collaboratorIds.includes(currentUser.id)));
   }
 
-  const value = { projects: visibleProjects, activeProjectId, activeProject, switchProject, createProject, updateProject, deleteProject, shareProject, isReady, unlockedProjects, unlockProject, currentUser, projectData, loadingData, addItem, updateItem, deleteItem, allUsers, addUser, updateUser, deleteUser };
+  // CALCULOS UNIFICADOS DE MANO DE OBRA Y PROVEEDORES
+  const totalProducedLabor = projectData.tasks.reduce((sum, task) => {
+      return sum + ((task.completedVolume || 0) * (task.unitPrice || 0));
+  }, 0);
+
+  const totalSupplierCosts = projectData.tasks.reduce((sum, task) => {
+      return sum + (task.supplierAssignments || []).reduce((subSum, s) => subSum + (s.amount || 0), 0);
+  }, 0);
+
+  const getCategorySpent = (category: BudgetCategory) => {
+      const manualSpent = projectData.expenses.filter(e => e.categoryId === category.id).reduce((sum, e) => sum + e.amount, 0);
+      const nameLower = (category.name || '').toLowerCase();
+      if (nameLower.includes('mano de obra') || nameLower.includes('labor')) {
+          return manualSpent + totalProducedLabor;
+      }
+      if (nameLower.includes('proveedor') || nameLower.includes('subcontrat')) {
+          return manualSpent + totalSupplierCosts;
+      }
+      return manualSpent;
+  };
+
+  const totalAllocated = projectData.budgetCategories.reduce((acc, cat) => acc + cat.allocated, 0);
+  const totalSpent = projectData.budgetCategories.reduce((acc, cat) => acc + getCategorySpent(cat), 0);
+
+  const value = { 
+    projects: visibleProjects, 
+    activeProjectId, 
+    activeProject, 
+    switchProject, 
+    createProject, 
+    updateProject, 
+    deleteProject, 
+    shareProject, 
+    isReady, 
+    unlockedProjects, 
+    unlockProject, 
+    currentUser, 
+    projectData, 
+    loadingData, 
+    addItem, 
+    updateItem, 
+    deleteItem, 
+    allUsers, 
+    addUser, 
+    updateUser, 
+    deleteUser,
+    totalProducedLabor,
+    totalSupplierCosts,
+    getCategorySpent,
+    totalAllocated,
+    totalSpent
+  };
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 };
 
